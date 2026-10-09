@@ -49,7 +49,7 @@ Paste the install line from step 2 again. It updates the code and keeps your log
 
 | You see | What to do |
 |---|---|
-| A pop-up asking to install **command line developer tools** | Click **Install**, wait for it to finish, then paste the install line again. |
+| "Python isn't installed yet" | Install Python from **python.org/downloads** (or click **Install** on Apple's "command line developer tools" pop-up). Then **open a new Terminal window** (`Cmd + N`) and paste the install line again. It picks up where it left off. |
 | Claude says it has no CampusGroups tool | Fully quit Claude (`Cmd + Q`, not just closing the window) and reopen it. Still missing? Start a **new chat**. |
 | "Not logged in" | Run `bash ~/Projects/gsb-api/setup.sh` and sign in. |
 | You pasted a command and nothing happened | That Terminal window is probably busy running something. Open a new window (`Cmd + N`) and paste it there. |

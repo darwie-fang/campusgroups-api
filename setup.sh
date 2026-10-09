@@ -55,16 +55,31 @@ esac
 
 # --- 2. Python ---------------------------------------------------------------
 bold "2. Python"
+INSTALL_LINE="curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash"
 if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "" >/dev/null 2>&1; then
-  fail "Python isn't installed yet." \
-    "A pop-up should ask to install the 'command line developer tools'." \
-    "Click Install, wait for it to finish (a few minutes), then run this again." \
-    "No pop-up? Run:  xcode-select --install"
+  fail "Python isn't installed yet. That's normal on a new Mac. Two ways to get it:" \
+    "" \
+    "  Option A: download it (usually faster)" \
+    "    Go to python.org/downloads, click 'Download Python', open the file and install it." \
+    "" \
+    "  Option B: Apple's pop-up" \
+    "    A pop-up may ask to install 'command line developer tools'. Click Install." \
+    "    No pop-up? Paste this and press Enter:  xcode-select --install" \
+    "    (This can take 5-15 minutes.)" \
+    "" \
+    "When it's finished:" \
+    "  1. Close this Terminal window and open a new one (Cmd+N)." \
+    "  2. Paste the same line again and press Enter:" \
+    "" \
+    "     $INSTALL_LINE" \
+    "" \
+    "  It picks up where it left off."
 fi
 PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' \
   || fail "Python $PYVER is too old. You need 3.9 or newer." \
-       "Install it from https://www.python.org/downloads/ then run this again."
+       "Install the latest from python.org/downloads, open a new Terminal window (Cmd+N)," \
+       "then paste the same line again:" "" "  $INSTALL_LINE"
 ok "Python $PYVER"
 
 # --- 3. Packages ---------------------------------------------------------------
