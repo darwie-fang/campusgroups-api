@@ -1,85 +1,142 @@
 # GSB CampusGroups API
 
-A small, read-only API for your own CampusGroups account at groups.gsb.columbia.edu.
-It calls the same internal JSON endpoints the website uses. There's no scraping and no browser, except for logging in.
+Ask Claude about Columbia Business School clubs, events and study rooms in plain English:
 
-## Setup (once)
+> *"What's the AI Club running next week?"*
+> *"Any venture capital events on Thursday?"*
+> *"Find me a free study room in Geffen tomorrow from 2 to 4."*
 
-```bash
-cd gsb-api
-python3 -m pip install -r requirements.txt
-python3 -m playwright install chromium
-python3 gsb.py login      # a browser opens: sign in with your UNI + approve Duo
+It reads **your own** CampusGroups account (groups.gsb.columbia.edu) and runs only on your laptop.
+It's read-only: it never registers, books or changes anything.
+
+---
+
+## Getting started (Mac, about 5 minutes)
+
+**You need:** a Mac, the [Claude desktop app](https://claude.ai/download), and your UNI + Duo.
+Python comes with your Mac; if it's missing, the setup will tell you how to get it.
+
+1. Open **Terminal** (press `Cmd + Space`, type `Terminal`, press Enter).
+2. Copy this line, paste it into Terminal, and press **Enter**:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/darwie-fang/courseworks-api/main/install.sh | bash
+   ```
+
+3. When a browser window opens, sign in with your **UNI and password** and approve **Duo**.
+   The window closes by itself.
+4. When it asks to restart Claude, press **Enter**.
+5. Ask Claude: *"What's the AI Club running next week?"*
+
+That's it. The project lives in `~/Projects/gsb-api`.
+
+### When your login expires
+
+Every week or two CampusGroups signs you out. Claude will tell you, and give you this line to paste
+into Terminal (then sign in with Duo again):
+
+```
+bash ~/Projects/gsb-api/setup.sh
 ```
 
-`login` saves **only session cookies** to `~/.gsb-api/session.json` (readable only by you).
-Your password is never seen or stored. `python3 gsb.py logout` deletes the file.
-When the session expires, calls return **401**. Run `python3 gsb.py login` again.
+### Get the latest version
 
-## Run the API
+Paste the install line from step 2 again. It updates the code and keeps your login.
 
-```bash
-python3 gsb.py serve
-```
+---
 
-Then open **http://127.0.0.1:8765/docs** to try every endpoint in your browser.
-It only listens on your own computer. Don't expose it: anyone who can reach it can read CampusGroups as you.
+## Troubleshooting
 
-| Endpoint | What it answers |
+| You see | What to do |
 |---|---|
-| `GET /status` | Is my saved session still valid? |
-| `GET /clubs` | Which clubs am I in? |
-| `GET /clubs/{club}/events?start=&end=` | "What's the AI Club running next week?" (`club` = ID, name, or "ai club") |
-| `GET /events?start=&end=&club=&q=&tag=&registered_only=` | Everything across all clubs, filterable |
-| `GET /rooms/free?date=&start=&end=&building=&min_capacity=&type=` | "Free 6-person room in Geffen tomorrow 14:00–16:00?" |
-| `GET /me/reservations` | My upcoming room reservations |
+| A pop-up asking to install **command line developer tools** | Click **Install**, wait for it to finish, then paste the install line again. |
+| Claude says it has no CampusGroups tool | Fully quit Claude (`Cmd + Q`, not just closing the window) and reopen it. Still missing? Start a **new chat**. |
+| "Not logged in" | Run `bash ~/Projects/gsb-api/setup.sh` and sign in. |
+| You pasted a command and nothing happened | That Terminal window is probably busy running something. Open a new window (`Cmd + N`) and paste it there. |
+| Anything else | Run `bash ~/Projects/gsb-api/setup.sh` again. It's safe to repeat and explains what's wrong. |
 
-Dates are `YYYY-MM-DD`, times `HH:MM`. Date ranges default to today → +7 days.
+**Important:** don't keep the project in Downloads, Desktop or Documents. macOS blocks the Claude app
+from running tools in those folders. (The installer puts it in `~/Projects` for you.)
 
-Examples:
+---
+
+## What it can answer
+
+| Ask Claude about | Behind the scenes |
+|---|---|
+| Your clubs | `list_my_clubs` |
+| One club's events ("ai club", "ABA", "tech club") | `get_club_events` |
+| Events across all clubs, by date, keyword, topic or "ones I registered for" | `get_all_events` |
+| Free rooms by date, time, building and size | `find_free_rooms` |
+| Your upcoming room reservations | `my_room_reservations` |
+
+Room availability covers about the current week, the same as the CampusGroups site.
+
+---
+
+## Privacy
+
+- Your **password is never seen or stored**. Signing in happens in a normal browser window.
+- Only the resulting session cookies are saved, in `~/.gsb-api/session.json`, readable only by you.
+  `python3 gsb.py logout` (inside the project folder) deletes them.
+- Nothing leaves your laptop except requests to CampusGroups itself.
+- CampusGroups' room data includes other students' names. This tool drops them and only shows free/busy times.
+- **Never share** your `~/.gsb-api` folder. It's your login. Sharing the project folder or the GitHub link is fine.
+
+---
+
+## Manual setup (Windows, or if you prefer doing it yourself)
+
+From inside the project folder (not in Downloads, Desktop or Documents):
+
+**Mac**
 ```
-/clubs/ai club/events
-/events?start=2026-10-05&end=2026-10-11&tag=Venture Capital
-/events?registered_only=true
-/rooms/free?date=2026-09-29&start=14:00&end=16:00&building=Geffen&min_capacity=6
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium
+.venv/bin/python gsb.py login
+.venv/bin/python connect_claude.py
 ```
 
-## Or skip the server
-
-```bash
-python3 gsb.py clubs
-python3 gsb.py events "ai club" 2026-09-28 2026-10-05
-python3 gsb.py all-events 2026-10-05 2026-10-11
-python3 gsb.py rooms 2026-09-29 14:00 16:00 Geffen
-python3 gsb.py reservations
+**Windows** (PowerShell)
+```
+py -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m playwright install chromium
+.venv\Scripts\python gsb.py login
+.venv\Scripts\python connect_claude.py
 ```
 
-## Chat with it in the Claude app
+Then fully quit and reopen the Claude app.
 
-`mcp_server.py` exposes the same features as Claude tools (list_my_clubs, get_club_events,
-get_all_events, find_free_rooms, my_room_reservations). Connect it once:
+---
 
-```bash
-source .venv/bin/activate
-python3 connect_claude.py      # adds "campusgroups" to Claude's config (backs up the old file)
+## For developers
+
+The same features are available as a local web API:
+
+```
+.venv/bin/python gsb.py serve        # http://127.0.0.1:8765/docs
 ```
 
-Fully quit the Claude app (Cmd+Q) and reopen it. Then ask things like
-"What's the AI Club running next week?" or "Find me a free room in Geffen tomorrow 2-4pm".
-The Claude app starts the tool itself; you don't need `gsb.py serve` running for this.
-`python3 connect_claude.py --remove` disconnects it.
+| Endpoint | |
+|---|---|
+| `GET /status` | Is the saved session valid? |
+| `GET /clubs` | Your clubs |
+| `GET /clubs/{club}/events?start=&end=` | One club's events |
+| `GET /events?start=&end=&club=&q=&tag=&registered_only=` | All events, filterable |
+| `GET /rooms/free?date=&start=&end=&building=&min_capacity=&type=` | Free rooms |
+| `GET /me/reservations` | Your upcoming reservations |
 
-## Good to know
+Or skip the server: `gsb.py clubs`, `gsb.py events "ai club"`, `gsb.py all-events`,
+`gsb.py rooms 2026-10-09 14:00 16:00 Geffen`, `gsb.py reservations`, `gsb.py status`.
 
-- **Read-only.** Nothing here RSVPs, books, or changes anything.
-- **All-events** pages through a scrolling feed (~20 events per request) until it passes your end date. A week takes a few seconds the first time. Results are cached for 30 minutes.
-- **Rooms** only cover the window CampusGroups shows (about the current week). Asking for a date outside it returns a clear error instead of pretending rooms are free.
-- The source room data includes other students' names. This API drops them and returns only free/busy times.
-- These are undocumented endpoints. If CampusGroups changes them, the parsing in `gsb_client.py` may need updating.
-- `/me/reservations` returns the raw fields for now, because the format wasn't visible yet (you had none).
+**Files:** `gsb_client.py` (login, requests, parsing), `api.py` (web API), `mcp_server.py` (Claude tools),
+`gsb.py` (command line), `connect_claude.py` (adds the tool to Claude), `setup.sh` / `install.sh` (setup).
 
-## Files
+**How it works:** it calls the same internal JSON endpoints the CampusGroups website uses, with your
+logged-in session. These are undocumented, so a CampusGroups update can break things until the parsing
+in `gsb_client.py` is fixed. The all-events feed returns ~20 events per request, so a full week takes a
+few seconds the first time; results are cached for 30 minutes.
 
-- `gsb_client.py`: login, session, endpoint calls, parsing (all the logic)
-- `api.py`: the FastAPI endpoints
-- `gsb.py`: command line (`login`, `logout`, `serve`, quick queries)
+*Unofficial personal project. Not affiliated with Columbia University or CampusGroups.*

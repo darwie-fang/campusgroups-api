@@ -3,6 +3,7 @@ Command line for the GSB CampusGroups API.
 
   python gsb.py login        # one-time: sign in with UNI + Duo in a browser window
   python gsb.py logout       # delete the saved session
+  python gsb.py status       # am I logged in?
   python gsb.py serve        # start the API at http://127.0.0.1:8765 (docs at /docs)
 
 Quick answers without the server:
@@ -28,6 +29,10 @@ def main(argv: list[str]) -> None:
         return login()
     if cmd == "logout":
         return logout()
+    if cmd == "status":   # exit code 0 = logged in, 1 = not
+        ok = GSBClient().status()["logged_in"]
+        print("Logged in." if ok else "Not logged in. Run: python3 gsb.py login")
+        sys.exit(0 if ok else 1)
     if cmd == "serve":
         import uvicorn
         uvicorn.run("api:app", host="127.0.0.1", port=8765)

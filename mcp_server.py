@@ -15,7 +15,8 @@ import os
 import sys
 import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 from gsb_client import GSBClient, SessionExpired  # noqa: E402
 
 SERVER = {"name": "campusgroups", "version": "0.1"}
@@ -122,8 +123,9 @@ def handle(msg):
             data = call_tool(p.get("name"), p.get("arguments") or {})
             return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
         except SessionExpired:
-            text = ("The CampusGroups login has expired. Ask the user to open Terminal and run:\n"
-                    "cd ~/Downloads/gsb-api && source .venv/bin/activate && python3 gsb.py login")
+            text = ("Not logged in to CampusGroups (the login may have expired). Ask the user "
+                    "to open Terminal, paste this line and press Enter, then sign in with "
+                    "their UNI and Duo:\n" + f"bash '{os.path.join(HERE, 'setup.sh')}'")
         except (KeyError, ValueError) as e:
             text = str(e).strip("'\"")
         except Exception as e:  # network trouble, site changes, etc.
