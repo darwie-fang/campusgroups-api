@@ -2,12 +2,12 @@
 # Downloads the GSB CampusGroups API into ~/Projects/gsb-api and runs setup.
 # Paste into Terminal:
 #
-#   curl -fsSL https://raw.githubusercontent.com/darwie-fang/courseworks-api/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash
 #
 # Running it again updates the code to the latest version (your login and
 # settings are kept).
 
-REPO="darwie-fang/courseworks-api"
+REPO="darwie-fang/campusgroups-api"
 TARGET="$HOME/Projects/gsb-api"
 
 fail() { printf "\n\033[31m✗ %s\033[0m\n\n" "$*"; exit 1; }

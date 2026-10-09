@@ -20,7 +20,7 @@ Python comes with your Mac; if it's missing, the setup will tell you how to get 
 2. Copy this line, paste it into Terminal, and press **Enter**:
 
    ```
-   curl -fsSL https://raw.githubusercontent.com/darwie-fang/courseworks-api/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash
    ```
 
 3. When a browser window opens, sign in with your **UNI and password** and approve **Duo**.
