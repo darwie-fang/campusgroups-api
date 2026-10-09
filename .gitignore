@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Which channel (main / dev) this copy was installed from
+.channel

@@ -119,6 +119,21 @@ Then fully quit and reopen the Claude app.
 
 ---
 
+---
+
+## Testing channel (QA)
+
+New changes go to the **dev** channel first. To try them, run the install line with `-s -- dev` at the end:
+
+```
+curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash -s -- dev
+```
+
+Then quit and reopen Claude. To go back to the normal version, run the normal install line.
+Tests (simulated CampusGroups, no real login needed): `python3 -m unittest discover -s tests` and `bash tests/test_scripts.sh`.
+
+---
+
 ## For developers
 
 The same features are available as a local web API:

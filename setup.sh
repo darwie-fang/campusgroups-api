@@ -20,6 +20,7 @@ cd "$DIR" || fail "Couldn't open the project folder."
 
 echo
 bold "GSB CampusGroups API: setup"
+[[ -f "$DIR/.channel" && "$(cat "$DIR/.channel")" != "main" ]] && info "Channel: $(cat "$DIR/.channel") (testing version)"
 echo
 
 # --- 0. Right machine, right folder ---------------------------------------
@@ -55,7 +56,9 @@ esac
 
 # --- 2. Python ---------------------------------------------------------------
 bold "2. Python"
+CHANNEL="$(cat "$DIR/.channel" 2>/dev/null || echo main)"
 INSTALL_LINE="curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash"
+[[ "$CHANNEL" != "main" ]] && INSTALL_LINE="$INSTALL_LINE -s -- $CHANNEL"
 if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "" >/dev/null 2>&1; then
   fail "Python isn't installed yet. That's normal on a new Mac. Two ways to get it:" \
     "" \
