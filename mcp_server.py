@@ -58,7 +58,7 @@ TOOLS = [
         "name": "find_free_rooms",
         "description": "Bookable rooms at CBS (study rooms, phone booths, classrooms) and their free "
                        "times on a date. With start and end, returns only rooms free for that whole "
-                       "window. Only covers roughly the current week. Read-only: it cannot book.",
+                       "window. Works for any upcoming date (e.g. next week or the week after). Read-only: it cannot book.",
         "inputSchema": {"type": "object", "properties": {
             "date": DATE, "start": TIME, "end": TIME,
             "building": {"type": "string", "description": "e.g. Geffen, Kravis"},

@@ -387,12 +387,17 @@ class GSBClient:
 
     # -- rooms ------------------------------------------------------------
 
-    def _rooms_raw(self) -> list[dict]:
+    def _rooms_raw(self, day: date) -> list[dict]:
+        """Every room with its bookings for the week (Sun-Sat) containing `day`.
+        CampusGroups' date box (filter8) picks the week; any date works."""
+        week_start = day - timedelta(days=(day.weekday() + 1) % 7)
+
         def load():
             seen, out, rng = set(), [], 0
             while rng < 1000:
                 rows = self._get("/mobile_ws/v17/mobile_room_availability_calendar", range=rng,
-                                 limit=200, filter1=1, filter7=1, order="undefined", search_word="")
+                                 limit=200, filter1=1, filter7=1, filter8=day.isoformat(),
+                                 order="undefined", search_word="")
                 new = [_map_row(r) for r in rows if isinstance(r, dict)]
                 new = [r for r in new if r.get("checkbox_id") not in seen]
                 if not new:
@@ -402,7 +407,7 @@ class GSBClient:
                 out.extend(new)
                 rng += len(rows)
             return out
-        return self._cached("rooms", load)
+        return self._cached(f"rooms:{week_start.isoformat()}", load)
 
     def free_rooms(self, day: str | date | None = None, start: str | None = None,
                    end: str | None = None, building: str | None = None,
@@ -411,7 +416,9 @@ class GSBClient:
         """Free time on `day`. If start/end ("14:00") are given, only rooms free
         for that whole window. Bookers' names in the source data are discarded."""
         d = _parse_date(day, datetime.now(TZ).date())
-        rooms = self._rooms_raw()
+        if d < datetime.now(TZ).date():
+            raise ValueError(f"{d} is in the past.")
+        rooms = self._rooms_raw(d)
 
         covered = set()
         parsed = []
@@ -429,9 +436,7 @@ class GSBClient:
             parsed.append((r, sorted(busy)))
 
         if covered and d not in covered:
-            raise ValueError(
-                f"{d} is outside the window CampusGroups currently shows "
-                f"({min(covered)} to {max(covered)}).")
+            raise ValueError(f"CampusGroups didn't return a schedule for {d}. Try another date.")
 
         def hour(v, default):
             try:
@@ -487,8 +492,14 @@ class GSBClient:
             if info["free"]:
                 results.append(info)
 
-        return {"date": d.isoformat(), "window": [start, end] if start else None,
-                "count": len(results), "rooms": results}
+        out = {"date": d.isoformat(), "window": [start, end] if start else None,
+               "count": len(results), "rooms": results}
+        if not results and not start:
+            out["note"] = "No room has free time that day; rooms appear to be closed (e.g. weekends)."
+        if (d - datetime.now(TZ).date()).days > 14:
+            out["note_booking"] = ("Shown as free on the calendar, but CampusGroups may not accept "
+                                   "bookings this far ahead.")
+        return out
 
     # -- my stuff ---------------------------------------------------------
 

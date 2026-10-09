@@ -70,7 +70,7 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Free rooms by date, time, building and size | `find_free_rooms` |
 | Your upcoming room reservations | `my_room_reservations` |
 
-Room availability covers about the current week, the same as the CampusGroups site.
+Room availability works for any upcoming date (next week, the week after, and beyond).
 
 ---
 
