@@ -1,0 +1,8 @@
+# Never commit your CampusGroups session
+.gsb-api/
+session.json
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
