@@ -157,6 +157,23 @@ class GSBClient:
             raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
         return json.loads(body)
 
+    def _get_html(self, path: str, **params) -> str:
+        """An HTML page/fragment (forms, details). Raises SessionExpired on a login redirect."""
+        r = self._session().get(f"{BASE}{path}", params=params, timeout=20, allow_redirects=False)
+        if r.status_code in (301, 302, 401, 403) or "/auth/login" in r.text[:2000]:
+            self._s = None
+            raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
+        return r.text
+
+    def _post(self, path: str, data: dict, referer: str) -> requests.Response:
+        r = self._session().post(f"{BASE}{path}", data=data, timeout=30, allow_redirects=False,
+                                 headers={"Referer": f"{BASE}{referer}", "X-Requested-With": "XMLHttpRequest",
+                                          "Accept": "text/html, */*"})
+        if r.status_code in (301, 302, 401, 403) and "/auth/login" in r.headers.get("Location", ""):
+            self._s = None
+            raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
+        return r
+
     def _cached(self, key: str, fn):
         hit = self._cache.get(key)
         if hit and time.time() - hit[0] < self.cache_seconds:
@@ -469,6 +486,9 @@ class GSBClient:
                 continue
             if room_type and room_type.lower() not in info["type"].lower():
                 continue
+            # CMC interview rooms are for recruiting interviews; only show them when asked for.
+            if not room_type and "interview" in info["type"].lower():
+                continue
 
             open_s = datetime.combine(d, datetime.min.time(), TZ) + timedelta(
                 hours=hour(r.get("roomCalendarStartHour"), 8))
@@ -495,7 +515,9 @@ class GSBClient:
         out = {"date": d.isoformat(), "window": [start, end] if start else None,
                "count": len(results), "rooms": results}
         if not results and not start:
-            out["note"] = "No room has free time that day; rooms appear to be closed (e.g. weekends)."
+            out["note"] = ("No room has free time that day. Either booking for that day hasn't opened "
+                           "yet (study rooms open only a few days ahead) or the rooms are closed "
+                           "(e.g. weekends). Try a nearer date.")
         if (d - datetime.now(TZ).date()).days > 14:
             out["note_booking"] = ("Shown as free on the calendar, but CampusGroups may not accept "
                                    "bookings this far ahead.")
@@ -504,12 +526,126 @@ class GSBClient:
     # -- my stuff ---------------------------------------------------------
 
     def my_reservations(self) -> list[dict]:
+        """Your upcoming room reservations."""
         rows = self._get("/mobile_ws/v17/mobile_user_rooms_reservations", range=0, limit=50,
                          filter1="upcoming", order="", search_word="")
-        # Field layout not seen yet (you had no reservations) - return mapped rows,
-        # with HTML stripped, so whatever the site sends comes through readably.
         out = []
         for r in rows if isinstance(rows, list) else []:
             m = _map_row(r) if isinstance(r, dict) else {}
-            out.append({k: _strip_html(v) if isinstance(v, str) else v for k, v in m.items()})
+            if not m.get("room_reservations_id"):
+                continue
+            out.append({
+                "id": str(m.get("room_reservations_id")),
+                "room": _strip_html(m.get("room_name")),
+                "start": _strip_html(m.get("reservation_date")),
+                "title": _strip_html(m.get("name")),
+                "status": _strip_html(m.get("reservation_status")),
+                "can_cancel": str(m.get("show_cancel_button")) == "1",
+            })
         return out
+
+    # -- booking (changes things on CampusGroups) ---------------------------
+
+    MAX_BOOKING_MINUTES = 240
+
+    def _find_room(self, room: str | int, day: date) -> dict:
+        """Match a room by id, number ("504") or name ("Geffen 504") in that week's list."""
+        rooms = self._rooms_raw(day)
+        q = str(room).strip().lower()
+        for r in rooms:
+            if q == str(r.get("checkbox_id")):
+                return r
+        for r in rooms:
+            name = html.unescape(r.get("name") or "").lower()
+            if name == q or name.split(" - ")[0].strip() == q:
+                return r
+        hits = [r for r in rooms if re.search(rf"\b{re.escape(q)}\b", html.unescape(r.get("name") or "").lower())]
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            names = ", ".join(html.unescape(h.get("name") or "") for h in hits[:6])
+            raise ValueError(f"'{room}' matches several rooms ({names}). Say which one.")
+        raise KeyError(f"No bookable room matches '{room}'.")
+
+    def book_room(self, room: str | int, day: str | date, start: str, title: str,
+                  minutes: int | None = None, end: str | None = None) -> dict:
+        """Book a room. `start`/`end` are "HH:MM" (24h). Checks it's free first and
+        confirms the booking appears in your reservations afterwards."""
+        d = _parse_date(day, datetime.now(TZ).date())
+        title = (title or "").strip()
+        if not title:
+            raise ValueError("A title is required (it's the booking's purpose, e.g. 'Study').")
+        try:
+            t0 = datetime.strptime(start, "%H:%M")
+        except ValueError:
+            raise ValueError("Start time must be HH:MM in 24-hour time, e.g. 15:00.")
+        if end:
+            minutes = int((datetime.strptime(end, "%H:%M") - t0).total_seconds() // 60)
+        if not minutes or minutes <= 0:
+            raise ValueError("Give an end time or a duration.")
+        if t0.minute % 5:
+            raise ValueError("Start time must be on a 5-minute mark (e.g. 15:00, 15:05).")
+        if minutes % 15:
+            raise ValueError("Duration must be in 15-minute steps (e.g. 30, 45, 60).")
+        if minutes > self.MAX_BOOKING_MINUTES:
+            raise ValueError(f"That's longer than {self.MAX_BOOKING_MINUTES // 60} hours; book a shorter slot.")
+        starts = datetime.combine(d, t0.time(), TZ)
+        if starts < datetime.now(TZ):
+            raise ValueError("That time has already passed.")
+
+        # Fresh availability (not cached) so we don't book over someone.
+        week = d - timedelta(days=(d.weekday() + 1) % 7)
+        self._cache.pop(f"rooms:{week.isoformat()}", None)
+        r = self._find_room(room, d)
+        room_id, room_name = str(r.get("checkbox_id")), html.unescape(r.get("name") or "")
+        ends = starts + timedelta(minutes=minutes)
+        for b in json.loads(r.get("roomSchedule") or "[]"):
+            bs = datetime.fromtimestamp(b["startEpoch"] / 1000, TZ)
+            be = datetime.fromtimestamp(b["endEpoch"] / 1000, TZ)
+            if bs < ends and be > starts:
+                why = ("not open for booking then" if b.get("title") == "Unavailable"
+                       else f"already booked {bs:%H:%M}-{be:%H:%M}")
+                raise ValueError(f"{room_name} isn't free {starts:%H:%M}-{ends:%H:%M} on {d:%a %b %-d}: {why}.")
+
+        form = self._get_html("/room_reservation_form", ax=1, room=room_id, duration=minutes)
+        tag = re.search(r'<input[^>]*name=["\']_csrf["\'][^>]*>', form)
+        m = tag and re.search(r'value=["\']([^"\']+)["\']', tag.group(0))
+        if not m:
+            raise RuntimeError("Couldn't read the booking form from CampusGroups (it may have changed).")
+        h12 = starts.strftime("%I")
+        data = {"_csrf": m.group(1), "update": "1", "room": room_id,
+                "start": starts.strftime("%d %b %y"), "start_hour": h12,
+                "start_minute": starts.strftime("%M"), "start_ampm": starts.strftime("%p"),
+                "duration": str(minutes), "name": title}
+        resp = self._post("/room_reservation_form", data, referer="/room_availability_calendar")
+        self._cache.pop(f"rooms:{week.isoformat()}", None)
+
+        # Confirm: the new booking should now be in your reservations.
+        want = f"{starts:%b} {starts.day}, {starts.year} {starts:%-I:%M %p}"
+        for res in self.my_reservations():
+            if res["room"].lower().startswith(room_name.split(" - ")[0].lower()) and want in res["start"]:
+                return {"booked": True, "reservation": res, "room": room_name,
+                        "date": d.isoformat(), "start": f"{starts:%H:%M}", "end": f"{ends:%H:%M}"}
+        detail = _strip_html(resp.text)[:300]
+        raise RuntimeError("CampusGroups didn't confirm the booking (it's not in your reservations). "
+                           f"The site said: {detail or 'nothing'}")
+
+    def cancel_booking(self, reservation_id: str | int) -> dict:
+        """Cancel one of your room reservations by its id (from my_reservations)."""
+        rid = str(reservation_id).strip()
+        mine = {res["id"]: res for res in self.my_reservations()}
+        if rid not in mine:
+            raise KeyError(f"No upcoming reservation of yours has id {rid}.")
+        if not mine[rid]["can_cancel"]:
+            raise ValueError("CampusGroups doesn't allow cancelling that reservation here.")
+        page = self._get_html("/room_reservation_details", ax=1, id=rid)
+        m = re.search(r'_csrf:\s*"([^"]+)"', page)
+        if not m:
+            raise RuntimeError("Couldn't read the cancel option from CampusGroups (it may have changed).")
+        self._post("/room_reservation_details", {"id": rid, "action": "cancel", "_csrf": m.group(1)},
+                   referer="/user_rooms_reservations")
+        self._cache = {k: v for k, v in self._cache.items() if not k.startswith("rooms:")}
+        still = [res for res in self.my_reservations() if res["id"] == rid and res["status"].lower() != "cancelled"]
+        if still:
+            raise RuntimeError("CampusGroups didn't confirm the cancellation; the reservation is still listed.")
+        return {"cancelled": True, "reservation": mine[rid]}

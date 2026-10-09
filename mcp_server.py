@@ -4,7 +4,8 @@ in plain English: "what's the AI Club running next week?"
 
 This is a small MCP server (the plug-in format Claude uses for tools). The
 Claude app starts it on your Mac when needed; you don't run it yourself.
-It's read-only and uses the session saved by `python3 gsb.py login`.
+It reads clubs, events and rooms, and can book or cancel rooms after the user confirms.
+Uses the session saved by `python3 gsb.py login`.
 
 No extra packages: it speaks MCP's JSON-RPC over stdin/stdout directly, so it
 works on Python 3.9.
@@ -19,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from gsb_client import GSBClient, SessionExpired  # noqa: E402
 
-SERVER = {"name": "campusgroups", "version": "0.1"}
+SERVER = {"name": "campusgroups", "version": "0.3"}
 gsb = GSBClient()
 
 DATE = {"type": "string", "description": "YYYY-MM-DD"}
@@ -58,7 +59,9 @@ TOOLS = [
         "name": "find_free_rooms",
         "description": "Bookable rooms at CBS (study rooms, phone booths, classrooms) and their free "
                        "times on a date. With start and end, returns only rooms free for that whole "
-                       "window. Works for any upcoming date (e.g. next week or the week after). Read-only: it cannot book.",
+                       "window. Works for any upcoming date, but study rooms only open for booking a few days "
+                       "ahead. CMC interview rooms are hidden unless room_type asks for them. "
+                       "Use book_room to reserve one.",
         "inputSchema": {"type": "object", "properties": {
             "date": DATE, "start": TIME, "end": TIME,
             "building": {"type": "string", "description": "e.g. Geffen, Kravis"},
@@ -67,8 +70,33 @@ TOOLS = [
     },
     {
         "name": "my_room_reservations",
-        "description": "The user's upcoming room reservations.",
+        "description": "The user's upcoming room reservations, with ids for cancel_booking.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "book_room",
+        "description": "Reserve a room on CampusGroups in the user's name. This makes a real booking. "
+                       "BEFORE calling it, state the exact room, date, start and end time and title, "
+                       "and get an explicit yes from the user in this conversation; then pass "
+                       "confirmed=true. Never book on your own initiative, never book several rooms "
+                       "or slots at once to 'hold' them, and never book CMC interview rooms unless "
+                       "the user says they're entitled to. Max 4 hours. It checks the room is free "
+                       "first and verifies the booking afterwards.",
+        "inputSchema": {"type": "object", "properties": {
+            "room": {"type": "string", "description": "Room id or name, e.g. 'Geffen 504'"},
+            "date": DATE, "start": TIME, "end": TIME,
+            "title": {"type": "string", "description": "Purpose shown on the booking, e.g. 'Study'"},
+            "confirmed": {"type": "boolean", "description": "true only after the user said yes to these exact details"}},
+            "required": ["room", "date", "start", "end", "title", "confirmed"]},
+    },
+    {
+        "name": "cancel_booking",
+        "description": "Cancel one of the user's room reservations (id from my_room_reservations). "
+                       "Confirm which reservation with the user first, then pass confirmed=true.",
+        "inputSchema": {"type": "object", "properties": {
+            "reservation_id": {"type": "string"},
+            "confirmed": {"type": "boolean"}},
+            "required": ["reservation_id", "confirmed"]},
     },
 ]
 
@@ -103,6 +131,13 @@ def call_tool(name, a):
         return r
     if name == "my_room_reservations":
         return gsb.my_reservations()
+    if name in ("book_room", "cancel_booking") and a.get("confirmed") is not True:
+        raise ValueError("Not done: confirm the exact details with the user first, then call again "
+                         "with confirmed=true.")
+    if name == "book_room":
+        return gsb.book_room(a["room"], a["date"], a["start"], a["title"], end=a["end"])
+    if name == "cancel_booking":
+        return gsb.cancel_booking(a["reservation_id"])
     raise KeyError(f"Unknown tool: {name}")
 
 

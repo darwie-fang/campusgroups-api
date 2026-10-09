@@ -5,9 +5,10 @@ Ask Claude about Columbia Business School clubs, events and study rooms in plain
 > *"What's the AI Club running next week?"*
 > *"Any venture capital events on Thursday?"*
 > *"Find me a free study room in Geffen tomorrow from 2 to 4."*
+> *"Book Geffen 504 tomorrow 3-4pm for 'Study'."*
 
 It reads **your own** CampusGroups account (groups.gsb.columbia.edu) and runs only on your laptop.
-It's read-only: it never registers, books or changes anything.
+It can also **book and cancel study rooms**, always after Claude confirms the details with you. It never registers you for events.
 
 ---
 
@@ -69,8 +70,15 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Events across all clubs, by date, keyword, topic or "ones I registered for" | `get_all_events` |
 | Free rooms by date, time, building and size | `find_free_rooms` |
 | Your upcoming room reservations | `my_room_reservations` |
+| Book a room ("book Geffen 504 today 3-4pm") | `book_room` (Claude confirms first) |
+| Cancel a booking | `cancel_booking` (Claude confirms first) |
 
-Room availability works for any upcoming date (next week, the week after, and beyond).
+Room availability works for any upcoming date, but **study rooms only open for booking a few days ahead**;
+before that, a day shows no free rooms. CMC interview rooms are hidden unless you ask for them.
+
+**Booking rules built in:** Claude must show you the room, date, time and title and get your yes before booking
+or cancelling. It checks the room is free first, books one slot at a time (max 4 hours), and confirms the booking
+shows up in your CampusGroups reservations.
 
 ---
 
