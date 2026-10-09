@@ -177,11 +177,16 @@ class GSBClient:
     def my_clubs(self) -> list[dict]:
         def load():
             data = self._get("/mobile_ws/v17/mobile_header_groups", search="", all="false")
-            clubs = []
+            # The site splits your clubs into "Most Recent" (type "last") and "My Groups"
+            # (type "group") without repeating them, so read both sections.
+            clubs, seen = [], set()
             for section in data:
-                if section.get("type") != "group":   # "My Groups" (skip "Most Recent")
+                if section.get("type") not in ("group", "last"):
                     continue
                 for g in section.get("groups", []):
+                    if g["groupID"] in seen:
+                        continue
+                    seen.add(g["groupID"])
                     clubs.append({
                         "id": g["groupID"],
                         "name": html.unescape(g["groupName"]),
