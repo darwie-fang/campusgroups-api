@@ -54,6 +54,21 @@ python3 gsb.py rooms 2026-09-29 14:00 16:00 Geffen
 python3 gsb.py reservations
 ```
 
+## Chat with it in the Claude app
+
+`mcp_server.py` exposes the same features as Claude tools (list_my_clubs, get_club_events,
+get_all_events, find_free_rooms, my_room_reservations). Connect it once:
+
+```bash
+source .venv/bin/activate
+python3 connect_claude.py      # adds "campusgroups" to Claude's config (backs up the old file)
+```
+
+Fully quit the Claude app (Cmd+Q) and reopen it. Then ask things like
+"What's the AI Club running next week?" or "Find me a free room in Geffen tomorrow 2-4pm".
+The Claude app starts the tool itself; you don't need `gsb.py serve` running for this.
+`python3 connect_claude.py --remove` disconnects it.
+
 ## Good to know
 
 - **Read-only.** Nothing here RSVPs, books, or changes anything.

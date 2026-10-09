@@ -213,7 +213,7 @@ class GSBClient:
             return clubs[names.index(close[0])]
         if s.isdigit():   # an ID for a club you're not in
             return {"id": int(s), "name": None, "short_name": None, "is_officer": False}
-        raise KeyError(f"No club of yours matches '{club}'. See GET /clubs.")
+        raise KeyError(f"No club of yours matches '{club}'. Check the list of your clubs.")
 
     # -- events -----------------------------------------------------------
 
