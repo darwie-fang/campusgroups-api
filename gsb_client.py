@@ -191,29 +191,89 @@ class GSBClient:
             return clubs
         return self._cached("my_clubs", load)
 
+    # Words that don't identify a club ("golf club" vs "ai club" share "club").
+    _GENERIC = {"club", "clubs", "association", "society", "the", "of", "and", "for", "in",
+                "cbs", "gsb", "columbia", "business", "school", "group", "student"}
+
+    @classmethod
+    def _words(cls, name: str, keep_generic: bool = False) -> list[str]:
+        words = re.findall(r"[a-z0-9]+", html.unescape(name or "").lower())
+        return words if keep_generic else [w for w in words if w not in cls._GENERIC]
+
+    def _all_groups_matching(self, query: str) -> list[dict]:
+        """Clubs you're not a member of: ask the site's group search, and also use
+        the clubs that appear in the upcoming all-events feed."""
+        found: dict = {}
+        try:
+            data = self._get("/mobile_ws/v17/mobile_header_groups", search=query, all="true")
+            for section in data if isinstance(data, list) else []:
+                for g in section.get("groups", []):
+                    found.setdefault(g["groupID"], {
+                        "id": g["groupID"], "name": html.unescape(g["groupName"]),
+                        "short_name": g.get("groupLogin"), "is_officer": False})
+        except SessionExpired:
+            raise
+        except Exception:
+            pass
+        try:
+            end = datetime.now(TZ).date() + timedelta(days=14)
+            self.all_events(end=end, max_pages=15)          # fills the cache below
+            raw_rows = self._cache.get(f"all:{end.isoformat()}", (0, []))[1]
+        except SessionExpired:
+            raise
+        except Exception:
+            raw_rows = []
+        for raw in raw_rows:
+            cid = raw.get("clubId")
+            if cid and raw.get("clubName"):
+                try:
+                    cid = int(cid)
+                except ValueError:
+                    pass
+                found.setdefault(cid, {"id": cid, "name": html.unescape(raw["clubName"]),
+                                       "short_name": raw.get("clubLogin"), "is_officer": False})
+        return list(found.values())
+
+    def _match(self, s: str, clubs: list[dict], fuzzy: bool) -> dict | None:
+        q_all = self._words(s, keep_generic=True)
+        q = self._words(s) or q_all
+        q_str = "".join(q)
+        for c in clubs:   # exact id / name / short name
+            if s in (str(c["id"]), (c["name"] or "").lower(), (c["short_name"] or "").lower()):
+                return c
+        for c in clubs:   # initials: "aba" -> Asian Business Association, "ai club" -> Artificial Intelligence Club
+            full = "".join(w[0] for w in self._words(c["name"], keep_generic=True))
+            core = "".join(w[0] for w in self._words(c["name"]))
+            if q_str and q_str in (full, core) and len(q_str) >= 2:
+                return c
+        for c in clubs:   # every meaningful word appears: "tech" -> Technology Club
+            words = self._words(c["name"])
+            if q and all(any(w.startswith(t) for w in words) for t in q):
+                return c
+        if fuzzy and q:
+            names = {" ".join(self._words(c["name"])): c for c in clubs}
+            close = difflib.get_close_matches(" ".join(q), list(names), n=1, cutoff=0.8)
+            if close:
+                return names[close[0]]
+        return None
+
     def resolve_club(self, club: str | int) -> dict:
-        """Accepts an ID, full name, short name, or something close ("ai club")."""
-        clubs = self.my_clubs()
+        """Accepts an ID, full name, short name, initials, or something close ("ai club").
+        Looks at your own clubs first, then every club on CampusGroups."""
         s = str(club).strip().lower()
-        for c in clubs:
-            if s in (str(c["id"]), c["name"].lower(), (c["short_name"] or "").lower()):
-                return c
-        # "ai club" -> "Artificial Intelligence Club": try initials, substring, fuzzy
-        core = s.removesuffix(" club").strip()
-        for c in clubs:
-            initials = "".join(w[0] for w in re.findall(r"[A-Za-z]+", c["name"])).lower()
-            if core in (initials, initials.removesuffix("c")):
-                return c
-        for c in clubs:
-            if re.search(rf"\b{re.escape(core)}", c["name"].lower()):
-                return c
-        names = [c["name"].lower() for c in clubs]
-        close = difflib.get_close_matches(s, names, n=1, cutoff=0.5)
-        if close:
-            return clubs[names.index(close[0])]
+        mine = self.my_clubs()
+        hit = self._match(s, mine, fuzzy=False)
+        if hit:
+            return hit
         if s.isdigit():   # an ID for a club you're not in
             return {"id": int(s), "name": None, "short_name": None, "is_officer": False}
-        raise KeyError(f"No club of yours matches '{club}'. Check the list of your clubs.")
+        query = " ".join(self._words(s)) or s
+        others = self._all_groups_matching(query)
+        hit = self._match(s, others, fuzzy=False) or self._match(s, mine + others, fuzzy=True)
+        if hit:
+            return hit
+        raise KeyError(f"Couldn't find a club matching '{club}'. Try its full name, "
+                       "or check the spelling.")
 
     # -- events -----------------------------------------------------------
 
