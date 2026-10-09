@@ -76,6 +76,10 @@ TOOLS = [
     {
         "name": "book_room",
         "description": "Reserve a room on CampusGroups in the user's name. This makes a real booking. "
+                       "Never guess or fill in a detail the user didn't give: if the room, date, start "
+                       "time, end time (or duration) or title is missing or ambiguous, ask the user for "
+                       "exactly those missing details first (e.g. 'What title should I put on it?'). "
+                       "Suggesting free rooms is fine, but the user must pick. "
                        "BEFORE calling it, state the exact room, date, start and end time and title, "
                        "and get an explicit yes from the user in this conversation; then pass "
                        "confirmed=true. Never book on your own initiative, never book several rooms "
@@ -85,7 +89,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "room": {"type": "string", "description": "Room id or name, e.g. 'Geffen 504'"},
             "date": DATE, "start": TIME, "end": TIME,
-            "title": {"type": "string", "description": "Purpose shown on the booking, e.g. 'Study'"},
+            "title": {"type": "string", "description": "Title shown on the booking, exactly as the user gave it (ask if they didn't)"},
             "confirmed": {"type": "boolean", "description": "true only after the user said yes to these exact details"}},
             "required": ["room", "date", "start", "end", "title", "confirmed"]},
     },
