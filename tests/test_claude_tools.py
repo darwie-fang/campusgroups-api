@@ -40,8 +40,8 @@ class ClaudeTools(unittest.TestCase):
             call(3, "book_room", confirmed=False, **booking),
             call(4, "book_room", confirmed=True, **booking),
             call(5, "my_room_reservations"),
-            call(6, "cancel_booking", reservation_id="425659"),
-            call(7, "cancel_booking", reservation_id="425659", confirmed=True),
+            call(6, "cancel_booking", reservation_id="900001"),
+            call(7, "cancel_booking", reservation_id="900001", confirmed=True),
             call(8, "get_club_events", club="underwater basket weaving"),
             {"jsonrpc": "2.0", "id": 9, "method": "nope"},
         ], site)
@@ -53,7 +53,7 @@ class ClaudeTools(unittest.TestCase):
         self.assertTrue(res[3]["result"]["isError"])                 # not confirmed -> refused
         self.assertEqual(len([p for p in site.posts if p[0] == "/room_reservation_form"]), 1)   # only the confirmed one
         self.assertIn('"booked": true', res[4]["result"]["content"][0]["text"])
-        self.assertIn("425659", res[5]["result"]["content"][0]["text"])
+        self.assertIn("900001", res[5]["result"]["content"][0]["text"])
         self.assertTrue(res[6]["result"]["isError"])                 # cancel without confirm -> refused
         self.assertIn('"cancelled": true', res[7]["result"]["content"][0]["text"])
         self.assertTrue(res[8]["result"]["isError"])

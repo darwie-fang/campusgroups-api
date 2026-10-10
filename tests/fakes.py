@@ -86,7 +86,7 @@ class FakeSite:
                 blocks.append({"title": "Some Student ab1234", "startEpoch": epoch(day, 12), "endEpoch": epoch(day, 14, 30)})
         for r in self.reservations:
             if r["room_id"] == room_id and r["status"] != "cancelled":
-                blocks.append({"title": "Darwie Fang", "startEpoch": r["start"], "endEpoch": r["end"]})
+                blocks.append({"title": "Test Student", "startEpoch": r["start"], "endEpoch": r["end"]})
         return json.dumps(blocks)
 
     def rooms(self, day: date):
@@ -174,7 +174,7 @@ class FakeSite:
         if path == "/room_reservation_form":
             s = datetime.strptime(f'{data["start"]} {data["start_hour"]}:{data["start_minute"]} {data["start_ampm"]}',
                                   "%d %b %y %I:%M %p").replace(tzinfo=TZ)
-            self.reservations.append({"id": str(425659 + len(self.reservations)), "room_id": data["room"],
+            self.reservations.append({"id": str(900001 + len(self.reservations)), "room_id": data["room"],
                                       "start": int(s.timestamp() * 1000),
                                       "end": int((s + timedelta(minutes=int(data["duration"]))).timestamp() * 1000),
                                       "title": data["name"], "status": "booked"})
