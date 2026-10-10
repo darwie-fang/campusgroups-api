@@ -65,7 +65,19 @@ def login(timeout_minutes: int = 5) -> None:
             page.goto(f"{MYCBS}/people")
             page.wait_for_load_state("networkidle")
             if "/login" in page.url:
-                page.get_by_text("Sign in with your SSO Account").click()
+                import re as _re
+                # The cookie banner can sit on top of the page and swallow the click.
+                try:
+                    page.get_by_role("button", name=_re.compile("reject all", _re.I)).click(timeout=3000)
+                except Exception:
+                    pass
+                try:
+                    page.get_by_role("button", name=_re.compile("sign in with your sso", _re.I)).click(timeout=5000)
+                except Exception:
+                    try:
+                        page.get_by_text(_re.compile("sign in with your sso", _re.I)).first.click(timeout=5000, force=True)
+                    except Exception:
+                        print("Click 'Sign in with your SSO Account' in the browser window to finish.")
                 page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
                                   timeout=timeout_minutes * 60_000)
                 page.wait_for_load_state("networkidle")
