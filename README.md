@@ -76,6 +76,8 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Who to talk to: fellows, coaches, advisors by industry, function or company ("a fellow who interned at Goldman") | `find_ace_people` (CMC ACE Book) |
 | Open CMC appointment times, optionally only matching fellows | `appointment_slots` |
 | Book / list / cancel CMC appointments in 12twenty | `book_appointment`, `my_appointments`, `cancel_appointment` (Claude confirms first) |
+| Recruiting events in 12twenty: info sessions, coffee chats, CMC workshops, by date, company, type or keyword | `career_events`, `career_event_details` |
+| Sign up for / cancel a 12twenty event, or join its waitlist | `register_career_event`, `my_career_events`, `cancel_career_event_registration` (Claude confirms first; time-slot coffee chats and events needing a resume upload or answers are done on 12twenty, and Claude gives you the link) |
 
 Room availability works for any upcoming date, but **study rooms only open for booking a few days ahead**;
 before that, a day shows no free rooms. CMC interview rooms are hidden unless you ask for them.

@@ -13,6 +13,7 @@ Quick answers without the server:
   python gsb.py all-events [START] [END]
   python gsb.py rooms 2026-09-29 14:00 16:00 Geffen
   python gsb.py reservations
+  python gsb.py career-events [START] [END] [COMPANY]   # 12twenty recruiting events
 """
 
 import json
@@ -65,6 +66,8 @@ def main(argv: list[str]) -> None:
             out = gsb.free_rooms(arg(0), arg(1), arg(2), arg(3))
         elif cmd == "reservations":
             out = gsb.my_reservations()
+        elif cmd == "career-events":
+            out = gsb.career_events(arg(0), arg(1), arg(2))
         else:
             print(__doc__)
             return

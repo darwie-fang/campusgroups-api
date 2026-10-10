@@ -21,7 +21,7 @@ sys.path.insert(0, HERE)
 from gsb_client import GSBClient, SessionExpired  # noqa: E402
 import ace_book  # noqa: E402
 
-SERVER = {"name": "campusgroups", "version": "0.5"}
+SERVER = {"name": "campusgroups", "version": "0.6"}
 gsb = GSBClient()
 
 DATE = {"type": "string", "description": "YYYY-MM-DD"}
@@ -138,6 +138,57 @@ TOOLS = [
             "required": ["appointment_id", "confirmed"]},
     },
     {
+        "name": "career_events",
+        "description": "Upcoming CMC/recruiting events in 12twenty: employer info sessions, coffee chats, "
+                       "company presentations, CMC workshops (New York time). Different from "
+                       "get_all_events, which is club events on CampusGroups; for 'recruiting', "
+                       "'company', 'info session' or 'coffee chat' questions use this. Default range: "
+                       "the next 14 days. Filter by company, keyword, event_type (e.g. 'Coffee Chat', "
+                       "'Company Presentation') or registered_only.",
+        "inputSchema": {"type": "object", "properties": {
+            "start": DATE, "end": DATE, "company": {"type": "string"}, "keyword": {"type": "string"},
+            "event_type": {"type": "string"}, "registered_only": {"type": "boolean"},
+            "limit": {"type": "integer", "description": "Max events to return (default 60)"}}},
+    },
+    {
+        "name": "career_event_details",
+        "description": "Full details of one 12twenty event (id from career_events): description, audience, "
+                       "dress code, work authorization, seats, whether the user can sign up here, and any "
+                       "extra registration steps (e.g. a company Zoom link). Call it before register_career_event.",
+        "inputSchema": {"type": "object", "properties": {"event_id": {"type": "string"}},
+                        "required": ["event_id"]},
+    },
+    {
+        "name": "my_career_events",
+        "description": "Upcoming 12twenty events the user is registered or waitlisted for, with ids for "
+                       "cancel_career_event_registration.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "register_career_event",
+        "description": "Sign the user up for a 12twenty event (a real registration that employers can "
+                       "see). Never guess which event: if it's ambiguous, ask. BEFORE calling it, state "
+                       "the event name, company, date and time, mention any work-authorization "
+                       "requirement and extra registration steps from career_event_details, and get an "
+                       "explicit yes; then pass confirmed=true. If the event is full and has a waitlist, "
+                       "ask whether to join it and only then pass join_waitlist=true. Events with time "
+                       "slots (most coffee chats), required uploads or questions must be done on "
+                       "12twenty; give the user the link. One event per request.",
+        "inputSchema": {"type": "object", "properties": {
+            "event_id": {"type": "string"}, "join_waitlist": {"type": "boolean"},
+            "confirmed": {"type": "boolean"}},
+            "required": ["event_id", "confirmed"]},
+    },
+    {
+        "name": "cancel_career_event_registration",
+        "description": "Cancel the user's registration for a 12twenty event, or take them off its waitlist "
+                       "(event id from my_career_events). Confirm which event with the user first, then "
+                       "pass confirmed=true.",
+        "inputSchema": {"type": "object", "properties": {
+            "event_id": {"type": "string"}, "confirmed": {"type": "boolean"}},
+            "required": ["event_id", "confirmed"]},
+    },
+    {
         "name": "book_room",
         "description": "Reserve a room on CampusGroups in the user's name. This makes a real booking. "
                        "Never guess or fill in a detail the user didn't give: if the room, date, start "
@@ -228,6 +279,27 @@ def call_tool(name, a):
                                     int(a.get("minutes") or 0), a.get("appointment_type"))
     if name == "cancel_appointment":
         return gsb.cancel_appointment(a["appointment_id"])
+    if name == "career_events":
+        limit = int(a.get("limit") or 60)
+        r = gsb.career_events(a.get("start"), a.get("end"), a.get("company"), a.get("keyword"),
+                              a.get("event_type"), bool(a.get("registered_only")))
+        res = {"start": r["start"], "end": r["end"], "total_matching": r["count"],
+               "events": [{k: v for k, v in e.items() if k != "link" and v not in (None, False, "")}
+                          for e in r["events"][:limit]]}
+        if r["count"] > limit:
+            res["note"] = f"Showing {limit} of {r['count']}. Narrow the dates or filter to see the rest."
+        return res
+    if name == "career_event_details":
+        return gsb.event_details(a["event_id"])
+    if name == "my_career_events":
+        return gsb.my_event_registrations()
+    if name in ("register_career_event", "cancel_career_event_registration") and a.get("confirmed") is not True:
+        raise ValueError("Not done: confirm the exact event with the user first, then call again "
+                         "with confirmed=true.")
+    if name == "register_career_event":
+        return gsb.register_event(a["event_id"], bool(a.get("join_waitlist")))
+    if name == "cancel_career_event_registration":
+        return gsb.cancel_event_registration(a["event_id"])
     if name == "find_person_email":
         return gsb.find_person_email(a["name"], a.get("class_year"))
     if name == "book_room":

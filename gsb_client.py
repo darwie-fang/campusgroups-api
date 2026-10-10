@@ -796,12 +796,12 @@ class GSBClient:
 
     APPT_DURATIONS = (15, 30, 45, 60)
 
-    def _tw(self, method: str, path: str, body: object = None) -> object:
+    def _tw(self, method: str, path: str, body: object = None, referer: str = "/appointments") -> object:
         """JSON call to 12twenty with your session. Raises SessionExpired if signed out."""
         r = self._session().request(method, f"{TWELVE}{path}", json=body, timeout=30,
                                     allow_redirects=False,
                                     headers={"Accept": "application/json",
-                                             "Referer": f"{TWELVE}/appointments"})
+                                             "Referer": f"{TWELVE}{referer}"})
         if r.status_code in (301, 302, 401, 403):
             raise SessionExpired("12twenty session expired. Run the login again.")
         if r.status_code >= 400:
@@ -815,7 +815,8 @@ class GSBClient:
     def _tw_student_id(self) -> int:
         def load():
             me = self._tw("GET", "/api/v2/account/current-user") or {}
-            for k in ("StudentId", "EntityId", "Id", "UserId"):
+            # Confirmed live: for students, current-user's Id is the student id.
+            for k in ("StudentId", "Id", "EntityId", "UserId"):
                 v = me.get(k) if isinstance(me, dict) else None
                 if isinstance(v, int) and v > 10**9:
                     return v
@@ -973,6 +974,213 @@ class GSBClient:
         if str(rec.get("StatusName", "")).lower() not in ("canceled", "cancelled"):
             raise RuntimeError("12twenty didn't confirm the cancellation.")
         return {"cancelled": True, "appointment": mine[aid]}
+
+    # -- 12twenty: career events (info sessions, coffee chats, workshops) ------
+
+    EVENTS_URL = f"{TWELVE}/events#/events/"
+
+    def _tw_upcoming_events(self) -> list[dict]:
+        """Every upcoming 12twenty event you can see (raw). Cached for the session."""
+        def load():
+            out, page = [], 1
+            while True:
+                body = {"ShouldCalculateTotal": True, "PageNumber": page, "PageSize": 500,
+                        "IsSortAsc": True, "sortBy": 1, "StudentGroupIds": [],
+                        # 15 = "all future" in 12twenty's date filter
+                        "Filters": [{"AttributeName": "event__end_date", "SelectedId": 15, "TypeId": 1,
+                                     "HasValue": True, "IsExcluded": False, "Id": 0}]}
+                data = self._tw("POST", "/api/v2/Events/post-query", body, referer="/events") or {}
+                items = data.get("Items", []) if isinstance(data, dict) else []
+                out += items
+                if len(items) < 500 or page >= 10:
+                    return out
+                page += 1
+        return self._cached("tw:events", load)
+
+    def _tw_my_registrations(self) -> dict:
+        """{event_id: registration} for your 12twenty event sign-ups (incl. waitlists)."""
+        data = self._tw("GET", f"/api/v2/event-student-registrations?studentId={self._tw_student_id()}"
+                               "&includeTimeSlotInfo=true&PageSize=1000", referer="/events") or {}
+        items = data.get("Items", []) if isinstance(data, dict) else []
+        return {str(r["EventId"]): r for r in items if r.get("EventId")}
+
+    def _event_summary(self, e: dict, reg: dict | None = None) -> dict:
+        s, en = self._utc_to_local(e.get("StartDate")), self._utc_to_local(e.get("EndDate"))
+        opens = self._utc_to_local(e.get("RegistrationBeginDate"))
+        closes = self._utc_to_local(e.get("RegistrationEndDate"))
+        # Your registrations list is the source of truth (the search results' IsAttending
+        # flag isn't always filled in).
+        registered = bool(reg)
+        waitlisted = bool(reg and reg.get("IsOnWaitlist"))
+        out = {"id": str(e["Id"]), "name": (e.get("Name") or "").strip(),
+               "company": e.get("CompanyName"), "type": e.get("EventTypeName"),
+               "date": s.date().isoformat() if s else None,
+               "start": f"{s:%H:%M}" if s else None, "end": f"{en:%H:%M}" if en else None,
+               "location": e.get("Location"), "status": e.get("StatusName"),
+               "registered": registered and not waitlisted, "waitlisted": waitlisted,
+               "link": f"{self.EVENTS_URL}{e['Id']}"}
+        if s and en and en.date() != s.date():
+            out["end_date"] = en.date().isoformat()
+        if opens and opens > datetime.now(TZ):
+            out["registration_opens"] = f"{opens:%a %b} {opens.day} {opens:%H:%M}"
+        if closes:
+            out["registration_closes"] = f"{closes:%a %b} {closes.day} {closes:%H:%M}"
+        if e.get("HasWaitlist") and e.get("NumWaitlisted"):
+            out["num_waitlisted"] = e["NumWaitlisted"]
+        return out
+
+    def career_events(self, start: str | date | None = None, end: str | date | None = None,
+                      company: str | None = None, keyword: str | None = None,
+                      event_type: str | None = None, registered_only: bool = False) -> dict:
+        """Upcoming 12twenty events (employer info sessions, coffee chats, CMC workshops).
+        Dates are New York time; default range is the next 14 days."""
+        today = datetime.now(TZ).date()
+        d0 = _parse_date(start, today)
+        d1 = _parse_date(end, d0 + timedelta(days=13))
+        if d1 < d0:
+            raise ValueError("The end date is before the start date.")
+        regs = self._tw_my_registrations()
+        out = []
+        for e in self._tw_upcoming_events():
+            ev = self._event_summary(e, regs.get(str(e.get("Id"))))
+            if not ev["date"] or not (d0.isoformat() <= ev["date"] <= d1.isoformat()):
+                continue
+            if registered_only and not (ev["registered"] or ev["waitlisted"]):
+                continue
+            if company and _norm_name(company) not in _norm_name(ev["company"] or "") + _norm_name(ev["name"]):
+                continue
+            if event_type and _norm_name(event_type).rstrip("s") not in _norm_name(ev["type"] or ""):
+                continue
+            if keyword:
+                blob = _norm_name(" ".join([ev["name"], ev["company"] or "", ev["type"] or "",
+                                            _strip_html(e.get("Description") or "")]))
+                if not all(_norm_name(w) in blob for w in keyword.split() if _norm_name(w)):
+                    continue
+            out.append(ev)
+        out.sort(key=lambda x: (x["date"], x["start"] or "", x["name"]))
+        return {"start": d0.isoformat(), "end": d1.isoformat(), "count": len(out), "events": out}
+
+    def my_event_registrations(self) -> list[dict]:
+        """Upcoming 12twenty events you're signed up (or waitlisted) for."""
+        regs = self._tw_my_registrations()
+        events = {str(e["Id"]): e for e in self._tw_upcoming_events()}
+        out = []
+        for eid, reg in regs.items():
+            if eid in events:
+                ev = self._event_summary(events[eid], reg)
+                ev["registration_id"] = str(reg["Id"])
+                if reg.get("TimeSlotStartTime"):
+                    ts = self._utc_to_local(reg["TimeSlotStartTime"])
+                    ev["your_time_slot"] = f"{ts:%H:%M}" if ts else None
+                out.append(ev)
+        return sorted(out, key=lambda x: (x["date"] or "", x["start"] or ""))
+
+    def _find_event(self, event_id: str | int) -> dict:
+        eid = str(event_id).strip()
+        if not eid.isdigit():
+            raise ValueError("Pass the event's id (from the events list), not its name.")
+        e = self._tw("GET", f"/api/v2/Events/{eid}", referer="/events")
+        if not isinstance(e, dict) or not e.get("Id"):
+            raise KeyError(f"No 12twenty event has id {eid}.")
+        return e
+
+    def event_details(self, event_id: str | int) -> dict:
+        """Full details for one event, plus whether you can sign up through Claude."""
+        e = self._find_event(event_id)
+        reg = self._tw_my_registrations().get(str(e["Id"]))
+        out = self._event_summary(e, reg)
+        rules = e.get("RegistrationRules") or {}
+        desc = _strip_html(e.get("Description") or "")
+        out.update({
+            "description": desc[:1500] + ("…" if len(desc) > 1500 else ""),
+            "format": e.get("EventFormatName"),
+            "industry": e.get("ConsolidatedIndustryName"),
+            "audience": e.get("TargetAudience"),
+            "dress": e.get("DressAttireName"),
+            "work_authorization": e.get("WorkAuthRequirementName"),
+            "other_info": _strip_html(e.get("OtherInformation") or "") or None,
+            "registration_instructions": _strip_html(e.get("RegistrationInstructions") or "") or None,
+            "seats": e.get("TotalSeats"), "attendees": e.get("NumAttendees"),
+            "can_register": bool(rules.get("CanRegister")),
+            "can_join_waitlist": bool(rules.get("CanRegisterForWaitlist")),
+            "cannot_register_reason": rules.get("CannotRegisterReason"),
+        })
+        blockers = self._event_blockers(e)
+        if blockers:
+            out["sign_up_on_website"] = blockers
+        if reg:
+            out["registration_id"] = str(reg["Id"])
+        return {k: v for k, v in out.items() if v not in (None, "", [])}
+
+    @staticmethod
+    def _event_blockers(e: dict) -> list[str]:
+        """Things Claude can't fill in for you; these events need the website."""
+        why = []
+        if e.get("IsTimeSlotEvent"):
+            why.append("you pick a time slot")
+        if e.get("PreSurveyMetadataJson"):
+            why.append("it has registration questions")
+        if any(d.get("IsRequired") for d in (e.get("RegistrationDocumentTypes") or [])):
+            names = ", ".join(d.get("Name") or "document" for d in e["RegistrationDocumentTypes"] if d.get("IsRequired"))
+            why.append(f"it needs a {names} upload")
+        if e.get("PaymentConfigId") or e.get("AddOns"):
+            why.append("it has a fee or add-ons")
+        if e.get("RegistrationTypeList"):
+            why.append("you choose a registration type")
+        return why
+
+    def register_event(self, event_id: str | int, join_waitlist: bool = False) -> dict:
+        """Sign up for a 12twenty event. If it's full and has a waitlist, join_waitlist=True
+        puts you on the waitlist instead."""
+        e = self._find_event(event_id)
+        eid = str(e["Id"])
+        link = f"{self.EVENTS_URL}{eid}"
+        regs = self._tw_my_registrations()
+        if eid in regs:
+            what = "on the waitlist for" if regs[eid].get("IsOnWaitlist") else "already registered for"
+            raise ValueError(f"You're {what} '{e.get('Name')}'.")
+        blockers = self._event_blockers(e)
+        if blockers:
+            raise ValueError(f"This one has to be done on 12twenty because {' and '.join(blockers)}: {link}")
+        rules = e.get("RegistrationRules") or {}
+        if not rules.get("CanRegister"):
+            if rules.get("CanRegisterForWaitlist"):
+                if not join_waitlist:
+                    raise ValueError("The event is full, but there's a waitlist. Ask the user whether to "
+                                     "join it, then call again with join_waitlist=true.")
+            else:
+                raise ValueError(rules.get("CannotRegisterReason") or "12twenty isn't taking sign-ups for this event right now.")
+        payload = {"EventId": e["Id"], "StudentId": self._tw_student_id(), "TimeSlotId": None,
+                   "registrationDocuments": [], "PreSurveyResponseJson": "{}"}
+        self._tw("POST", "/api/v2/event-student-registrations", payload, referer=f"/events")
+        self._cache.pop("tw:events", None)
+        reg = self._tw_my_registrations().get(eid)
+        if not reg:
+            raise RuntimeError(f"12twenty didn't confirm the sign-up. Check the event page: {link}")
+        ev = self._event_summary(e, reg)
+        ev["registration_id"] = str(reg["Id"])
+        res = {"registered": not reg.get("IsOnWaitlist"), "waitlisted": bool(reg.get("IsOnWaitlist")), "event": ev}
+        if reg.get("WaitlistPosition"):
+            res["waitlist_position"] = reg["WaitlistPosition"]
+        instr = _strip_html(e.get("RegistrationInstructions") or "")
+        if instr:
+            res["also_note"] = instr      # e.g. "also register on the company's Zoom link"
+        return res
+
+    def cancel_event_registration(self, event_id: str | int) -> dict:
+        """Cancel your sign-up for an event (or leave its waitlist)."""
+        eid = str(event_id).strip()
+        regs = self._tw_my_registrations()
+        if eid not in regs:
+            raise KeyError(f"You're not signed up for event {eid}.")
+        reg = regs[eid]
+        events = {str(e["Id"]): e for e in self._tw_upcoming_events()}
+        summary = self._event_summary(events[eid], reg) if eid in events else {"id": eid}
+        self._tw("DELETE", f"/api/v2/event-student-registrations/{reg['Id']}", referer=f"/events")
+        self._cache.pop("tw:events", None)
+        if eid in self._tw_my_registrations():
+            raise RuntimeError("12twenty didn't confirm the cancellation; you're still signed up.")
+        return {"cancelled": True, "was_waitlisted": bool(reg.get("IsOnWaitlist")), "event": summary}
 
 
 def _norm_name(s: str) -> str:

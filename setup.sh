@@ -126,7 +126,7 @@ else
 fi
 
 # --- 4b. CMC ACE Book (downloaded from CMC's site; stays on this computer) --------
-if "$VPy" "$DIR/gsb.py" import-ace-book >/dev/null 2>&1; then
+if "$VPY" "$DIR/gsb.py" import-ace-book >/dev/null 2>&1; then
   ok "CMC ACE Book ready (fellows, coaches, advisors)"
 else
   info "Couldn't download the CMC ACE Book right now; Claude will try again when you ask about fellows."
