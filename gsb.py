@@ -4,7 +4,7 @@ Command line for the GSB CampusGroups API.
   python gsb.py login        # one-time: sign in with UNI + Duo in a browser window
   python gsb.py logout       # delete the saved session
   python gsb.py status       # am I logged in?
-  python gsb.py import-ace-book <pdf>   # read your CMC ACE Book (kept on this computer only)
+  python gsb.py import-ace-book [pdf]  # get the CMC ACE Book (from CMC's site; kept on this computer only)
   python gsb.py serve        # start the API at http://127.0.0.1:8765 (docs at /docs)
 
 Quick answers without the server:
@@ -44,9 +44,7 @@ def main(argv: list[str]) -> None:
         sys.exit(0 if ok else 1)
     if cmd == "import-ace-book":
         import ace_book
-        if not args:
-            sys.exit("Usage: python3 gsb.py import-ace-book <path to the ACE Book PDF>")
-        n = ace_book.import_pdf(args[0])
+        n = ace_book.import_pdf(args[0] if args else None)
         print(f"Imported {n} people from the ACE Book. Saved only on this computer ({ace_book.ACE_FILE}).")
         return
     if cmd == "serve":

@@ -139,3 +139,42 @@ class AceBook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AceBookRefresh(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = (ace_book.ACE_FILE, ace_book.import_pdf)
+        ace_book.ACE_FILE = Path(self.tmp.name, "ace_book.json")
+        self.downloads = 0
+
+        def fake_import(source=None):
+            self.downloads += 1
+            if getattr(self, "offline", False):
+                raise RuntimeError("no network")
+            ace_book.ACE_FILE.write_text(json.dumps({"fetched": __import__("time").time(),
+                                                     "people": [{"name": "Pat Fellow", "role": "fellow", "fields": {}, "bio": ""}]}))
+            return 1
+        ace_book.import_pdf = fake_import
+
+    def tearDown(self):
+        ace_book.ACE_FILE, ace_book.import_pdf = self.old
+        self.tmp.cleanup()
+
+    def test_downloads_when_missing_then_uses_local_copy(self):
+        self.assertEqual(ace_book.load()[0]["name"], "Pat Fellow")
+        ace_book.load()
+        self.assertEqual(self.downloads, 1)
+
+    def test_refreshes_when_old_and_falls_back_offline(self):
+        ace_book.ACE_FILE.write_text(json.dumps({"fetched": 0, "people": [{"name": "Old Copy", "role": "fellow", "fields": {}, "bio": ""}]}))
+        self.offline = True
+        self.assertEqual(ace_book.load()[0]["name"], "Old Copy")    # old copy still works offline
+        self.offline = False
+        self.assertEqual(ace_book.load()[0]["name"], "Pat Fellow")  # refreshed once online
+        ace_book.ACE_FILE.unlink()
+        self.offline = True
+        with self.assertRaises(FileNotFoundError):
+            ace_book.load()

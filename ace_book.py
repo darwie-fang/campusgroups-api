@@ -3,12 +3,12 @@ Reads the CMC "ACE Book" PDF (advisors, coaches, fellows, executives in residenc
 so Claude can match you with the right person ("a fellow who did PE recruiting and
 interned at Goldman").
 
-The ACE Book is a CMC document about real people, so it is NEVER stored in this
-project or on GitHub. Each student imports their own copy once:
+The book is downloaded from CMC's own public link (ACE_URL) during setup and
+refreshed automatically when it's over a month old. It is never stored in this
+project or on GitHub; the extracted profiles are kept only on each laptop, in
+~/.gsb-api/ace_book.json. You can also import a local copy:
 
-    python3 gsb.py import-ace-book ~/Downloads/MBA_ACE_Book_2026-2027.pdf
-
-and the extracted profiles are kept only on their laptop, in ~/.gsb-api/ace_book.json.
+    python3 gsb.py import-ace-book [path or URL]
 """
 
 from __future__ import annotations
@@ -18,6 +18,10 @@ import re
 from pathlib import Path
 
 ACE_FILE = Path.home() / ".gsb-api" / "ace_book.json"
+# CMC's published copy. Update this when CMC posts a new year's book.
+ACE_URL = ("https://business.columbia.edu/sites/default/files-efs/imce-uploads/CMC/"
+           "MBA%20ACE%20Book%202026-2027_0.pdf")
+MAX_AGE_DAYS = 30
 
 # Section headings in the book, in order, and the role each section's people have.
 SECTIONS = [("Advisors", "advisor"), ("Coaches", "coach"), ("Fellows", "fellow"),
@@ -108,17 +112,31 @@ def parse_pages(pages: list[str]) -> list[dict]:
     return out
 
 
-def import_pdf(path: str) -> int:
+def import_pdf(source: str | None = None) -> int:
+    """Read the ACE Book from a local path or URL (default: CMC's link) and save the
+    profiles locally. Returns how many people were found."""
+    import io
+    import time
     from pypdf import PdfReader          # only needed for importing
-    pdf = Path(path).expanduser()
-    if not pdf.exists():
-        raise FileNotFoundError(f"Can't find {pdf}.")
-    pages = [(pg.extract_text() or "") for pg in PdfReader(str(pdf)).pages]
-    people = parse_pages(pages)
+    src = source or ACE_URL
+    if re.match(r"^https?://", src):
+        import requests
+        r = requests.get(src, timeout=60, headers={"User-Agent": "Mozilla/5.0 (gsb-api)"})
+        if r.status_code != 200 or not r.content.startswith(b"%PDF"):
+            raise RuntimeError(f"Couldn't download the ACE Book from CMC ({r.status_code}). "
+                               "The link may have changed for the new year.")
+        reader, name = PdfReader(io.BytesIO(r.content)), src.rsplit("/", 1)[-1]
+    else:
+        pdf = Path(src).expanduser()
+        if not pdf.exists():
+            raise FileNotFoundError(f"Can't find {pdf}.")
+        reader, name = PdfReader(str(pdf)), pdf.name
+    people = parse_pages([(pg.extract_text() or "") for pg in reader.pages])
     if not people:
         raise ValueError("That PDF doesn't look like the CMC ACE Book (no profiles found).")
     ACE_FILE.parent.mkdir(mode=0o700, exist_ok=True)
-    ACE_FILE.write_text(json.dumps({"source": pdf.name, "people": people}, ensure_ascii=False), encoding="utf-8")
+    ACE_FILE.write_text(json.dumps({"source": name, "fetched": time.time(), "people": people},
+                                   ensure_ascii=False), encoding="utf-8")
     try:
         ACE_FILE.chmod(0o600)
     except OSError:
@@ -127,12 +145,23 @@ def import_pdf(path: str) -> int:
 
 
 def load() -> list[dict]:
+    """Profiles from the local copy; downloads/refreshes from CMC when missing or old."""
+    import time
+    data = None
     try:
-        return json.loads(ACE_FILE.read_text(encoding="utf-8"))["people"]
-    except (OSError, ValueError, KeyError):
-        raise FileNotFoundError(
-            "The ACE Book hasn't been imported yet. In Terminal, run (with your copy of the PDF):\n"
-            "  cd ~/Projects/gsb-api && .venv/bin/python gsb.py import-ace-book ~/Downloads/<ACE Book file>.pdf")
+        data = json.loads(ACE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    stale = not data or time.time() - data.get("fetched", 0) > MAX_AGE_DAYS * 86400
+    if stale:
+        try:
+            import_pdf()
+            data = json.loads(ACE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            if not data:
+                raise FileNotFoundError("Couldn't get the ACE Book from CMC's website right now. "
+                                        "Try again later.")
+    return data["people"]
 
 
 def _norm(s: str) -> str:
