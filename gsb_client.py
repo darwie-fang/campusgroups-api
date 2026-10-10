@@ -229,7 +229,14 @@ class GSBClient:
             directory = False
         except Exception:
             directory = None                           # site trouble, not a login problem
-        return {"logged_in": True, "directory": directory}
+        try:
+            self._tw("GET", "/api/v2/account/current-user")
+            careers = True
+        except SessionExpired:
+            careers = False
+        except Exception:
+            careers = None
+        return {"logged_in": True, "directory": directory, "careers": careers}
 
     # -- myCBS people directory (one person at a time) ----------------------
 
@@ -784,3 +791,189 @@ class GSBClient:
         if still:
             raise RuntimeError("CampusGroups didn't confirm the cancellation; the reservation is still listed.")
         return {"cancelled": True, "reservation": mine[rid]}
+
+    # -- 12twenty: CMC appointments (fellows, advisers, coaches) ---------------
+
+    APPT_DURATIONS = (15, 30, 45, 60)
+
+    def _tw(self, method: str, path: str, body: object = None) -> object:
+        """JSON call to 12twenty with your session. Raises SessionExpired if signed out."""
+        r = self._session().request(method, f"{TWELVE}{path}", json=body, timeout=30,
+                                    allow_redirects=False,
+                                    headers={"Accept": "application/json",
+                                             "Referer": f"{TWELVE}/appointments"})
+        if r.status_code in (301, 302, 401, 403):
+            raise SessionExpired("12twenty session expired. Run the login again.")
+        if r.status_code >= 400:
+            raise RuntimeError(f"12twenty said {r.status_code}: {_strip_html(r.text)[:200]}")
+        if not r.text.strip():
+            return None
+        if not r.text.strip().startswith(("[", "{")):
+            raise SessionExpired("12twenty session expired. Run the login again.")
+        return r.json()
+
+    def _tw_student_id(self) -> int:
+        def load():
+            me = self._tw("GET", "/api/v2/account/current-user") or {}
+            for k in ("StudentId", "EntityId", "Id", "UserId"):
+                v = me.get(k) if isinstance(me, dict) else None
+                if isinstance(v, int) and v > 10**9:
+                    return v
+            for v in (me.values() if isinstance(me, dict) else []):
+                if isinstance(v, dict) and isinstance(v.get("StudentId"), int):
+                    return v["StudentId"]
+            raise RuntimeError("Couldn't work out your 12twenty student ID.")
+        return self._cached("tw:me", load)
+
+    @staticmethod
+    def _utc_to_local(s: str | None) -> datetime | None:
+        if not s:
+            return None
+        d = datetime.fromisoformat(s.replace("Z", "").split(".")[0])
+        return d.replace(tzinfo=ZoneInfo("UTC")).astimezone(TZ)
+
+    @staticmethod
+    def _local_to_utc_str(d: datetime) -> str:
+        return d.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S")
+
+    def _tw_calendar(self, d0: date, d1: date) -> list[dict]:
+        """Raw 12twenty calendar items between two dates (your appointments = TypeId 1,
+        open availability blocks = TypeId 2)."""
+        start = datetime.combine(d0, datetime.min.time(), TZ)
+        end = datetime.combine(d1 + timedelta(days=1), datetime.min.time(), TZ)
+        body = {"ShouldCalculateTotal": True, "PageNumber": 1, "PageSize": 2147483647, "IsSortAsc": True,
+                "Filters": [], "StartTime": self._local_to_utc_str(start) + ".000Z",
+                "EndTime": self._local_to_utc_str(end) + ".000Z",
+                "ShowAppointments": True, "ShowAvailableBlocks": True, "ShowPersonalEvents": False,
+                "StudentId": self._tw_student_id()}
+        data = self._tw("POST", "/api/v2/appointment-calendar-events/post-query", body) or {}
+        return data.get("Items", []) if isinstance(data, dict) else []
+
+    def appointment_slots(self, start: str | date | None = None, end: str | date | None = None,
+                          adviser: str | None = None, appointment_type: str | None = None) -> dict:
+        """Open availability with CMC fellows/advisers/coaches. `adviser` matches part of a
+        name; `appointment_type` e.g. 'Fellow'."""
+        today = datetime.now(TZ).date()
+        d0 = _parse_date(start, today)
+        d1 = _parse_date(end, d0 + timedelta(days=6))
+        if (d1 - d0).days > 31:
+            raise ValueError("Pick a range of a month or less.")
+        out = []
+        for it in self._tw_calendar(d0, d1):
+            if it.get("TypeId") != 2:
+                continue
+            name = it.get("AdviserName") or ""
+            if adviser and _norm_name(adviser) not in _norm_name(name):
+                continue
+            if appointment_type and appointment_type.lower() not in (it.get("PreferredAppointmentTypeName") or "").lower() \
+                    and it.get("PreferredAppointmentTypeName"):
+                continue
+            s, e = self._utc_to_local(it["StartTime"]), self._utc_to_local(it["EndTime"])
+            earliest = self._utc_to_local(it.get("MinAvailableBookingTime"))
+            if earliest and e <= earliest:
+                continue
+            if it.get("HasMaxAppointmentsReached"):
+                continue
+            out.append({"block_id": it["EntityId"], "adviser": name, "date": s.date().isoformat(),
+                        "from": f"{max(s, earliest) if earliest else s:%H:%M}", "until": f"{e:%H:%M}",
+                        "bookable_from": f"{earliest:%a %b} {earliest.day} {earliest:%H:%M}" if earliest else None})
+        out.sort(key=lambda x: (x["date"], x["from"], x["adviser"]))
+        return {"start": d0.isoformat(), "end": d1.isoformat(), "count": len(out), "slots": out}
+
+    def my_appointments(self, days: int = 60) -> list[dict]:
+        today = datetime.now(TZ).date()
+        out = []
+        for it in self._tw_calendar(today, today + timedelta(days=days)):
+            if it.get("TypeId") != 1:
+                continue
+            s, e = self._utc_to_local(it["StartTime"]), self._utc_to_local(it["EndTime"])
+            out.append({"id": str(it["EntityId"]), "with": it.get("AdviserName"),
+                        "date": s.date().isoformat(), "start": f"{s:%H:%M}", "end": f"{e:%H:%M}",
+                        "type": it.get("PreferredAppointmentTypeName"),
+                        "virtual": bool(it.get("Location") and "virtual-meetings" in str(it.get("Location")))})
+        return sorted(out, key=lambda x: (x["date"], x["start"]))
+
+    def book_appointment(self, adviser: str, day: str | date, start: str, topic: str,
+                         minutes: int = 30, appointment_type: str | None = None) -> dict:
+        """Book a CMC appointment in one of the adviser's open blocks. Times are New York time."""
+        topic = (topic or "").strip()
+        if not topic:
+            raise ValueError("A topic is required (what you'd like to discuss).")
+        if minutes not in self.APPT_DURATIONS:
+            raise ValueError("Length must be 15, 30, 45 or 60 minutes.")
+        d = _parse_date(day, datetime.now(TZ).date())
+        try:
+            t0 = datetime.strptime(start, "%H:%M")
+        except ValueError:
+            raise ValueError("Start time must be HH:MM in 24-hour time, e.g. 14:00.")
+        if t0.minute % 5:
+            raise ValueError("Start time must be on a 5-minute mark.")
+        starts = datetime.combine(d, t0.time(), TZ)
+        ends = starts + timedelta(minutes=minutes)
+
+        items = self._tw_calendar(d, d)
+        mine = [i for i in items if i.get("TypeId") == 1]
+        for m in mine:
+            ms, me = self._utc_to_local(m["StartTime"]), self._utc_to_local(m["EndTime"])
+            if ms < ends and me > starts:
+                raise ValueError(f"You already have an appointment then ({ms:%H:%M}-{me:%H:%M} with {m.get('AdviserName')}).")
+        blocks = [i for i in items if i.get("TypeId") == 2 and _norm_name(adviser) in _norm_name(i.get("AdviserName") or "")]
+        names = sorted({b.get("AdviserName") for b in blocks})
+        if len(names) > 1:
+            raise ValueError(f"'{adviser}' matches several people ({', '.join(names)}). Say which one.")
+        fit = [b for b in blocks if self._utc_to_local(b["StartTime"]) <= starts and self._utc_to_local(b["EndTime"]) >= ends]
+        if not fit:
+            if not blocks:
+                raise ValueError(f"{adviser} has no open time on {d:%a %b} {d.day}.")
+            spans = ", ".join(f"{self._utc_to_local(b['StartTime']):%H:%M}-{self._utc_to_local(b['EndTime']):%H:%M}" for b in blocks)
+            raise ValueError(f"{names[0]} isn't free {starts:%H:%M}-{ends:%H:%M} that day. Open: {spans}.")
+        b = fit[0]
+        earliest = self._utc_to_local(b.get("MinAvailableBookingTime"))
+        if earliest and starts < earliest:
+            raise ValueError(f"That's too soon; the earliest bookable time is {earliest:%a %b} {earliest.day} {earliest:%H:%M}.")
+
+        block = self._tw("GET", f"/api/v2/appointment-blocks/{b['EntityId']}") or {}
+        type_ids = block.get("AvailableAppointmentTypeIds") or []
+        type_names = [t.strip() for t in (block.get("AvailableAppointmentTypeNames") or "").split(",") if t.strip()]
+        type_id = type_ids[0] if type_ids else None
+        if appointment_type and len(type_ids) == len(type_names):
+            for tid, tn in zip(type_ids, type_names):
+                if appointment_type.lower() in tn.lower():
+                    type_id = tid
+        elif len(type_ids) > 1 and len(type_ids) == len(type_names):
+            raise ValueError("This slot offers several appointment types (" + ", ".join(type_names) +
+                             "). Ask the user which one, then pass appointment_type.")
+        adviser_obj = block.get("Adviser") or {"Id": b["AdviserId"], "AdviserId": b["AdviserId"]}
+        payload = {"Id": 0, "isNew": True, "ReasonForVisitIds": [], "CustomAttributeValues": {},
+                   "StudentId": self._tw_student_id(),
+                   "StartTime": self._local_to_utc_str(starts),
+                   "EndTime": self._local_to_utc_str(ends) + ".000Z",
+                   "TimeZoneId": block.get("TimeZoneId") or 2,
+                   "AdviserId": b["AdviserId"], "Adviser": adviser_obj,
+                   "AppointmentBlockId": b["EntityId"], "AppointmentBlock": block,
+                   "PreferredAppointmentTypeId": type_id,
+                   "LocationTypeId": 1, "VirtualLocationTypeId": 1, "Topic": topic}
+        created = self._tw("POST", "/api/v2/appointments", payload)
+        # Confirm it's on your calendar.
+        for m in self.my_appointments(days=max(1, (d - datetime.now(TZ).date()).days + 1)):
+            if m["date"] == d.isoformat() and m["start"] == f"{starts:%H:%M}" and \
+                    _norm_name(m["with"] or "") == _norm_name(b.get("AdviserName") or ""):
+                return {"booked": True, "appointment": m, "topic": topic}
+        cid = created.get("Id") if isinstance(created, dict) else None
+        raise RuntimeError("12twenty didn't confirm the booking (it's not on your calendar)"
+                           + (f"; it returned appointment {cid}" if cid else "") + ".")
+
+    def cancel_appointment(self, appointment_id: str | int) -> dict:
+        aid = str(appointment_id).strip()
+        mine = {m["id"]: m for m in self.my_appointments()}
+        if aid not in mine:
+            raise KeyError(f"No upcoming appointment of yours has id {aid}.")
+        self._tw("PUT", f"/api/v2/appointments/{aid}/cancel", {})
+        rec = self._tw("GET", f"/api/v2/appointments/{aid}") or {}
+        if str(rec.get("StatusName", "")).lower() not in ("canceled", "cancelled"):
+            raise RuntimeError("12twenty didn't confirm the cancellation.")
+        return {"cancelled": True, "appointment": mine[aid]}
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[^a-z]", "", (s or "").lower())

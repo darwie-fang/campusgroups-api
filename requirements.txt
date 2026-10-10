@@ -2,4 +2,5 @@ fastapi>=0.110
 uvicorn>=0.29
 requests>=2.31
 playwright>=1.44
+pypdf>=3.0
 tzdata; sys_platform == "win32"

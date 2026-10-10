@@ -4,6 +4,7 @@ Command line for the GSB CampusGroups API.
   python gsb.py login        # one-time: sign in with UNI + Duo in a browser window
   python gsb.py logout       # delete the saved session
   python gsb.py status       # am I logged in?
+  python gsb.py import-ace-book <pdf>   # read your CMC ACE Book (kept on this computer only)
   python gsb.py serve        # start the API at http://127.0.0.1:8765 (docs at /docs)
 
 Quick answers without the server:
@@ -31,14 +32,23 @@ def main(argv: list[str]) -> None:
         return logout()
     if cmd == "status":   # exit code 0 = logged in to CampusGroups and myCBS, 1 = not
         st = GSBClient().status()
-        ok = st["logged_in"] and st.get("directory") is not False
+        ok = st["logged_in"] and st.get("directory") is not False and st.get("careers") is not False
         if not st["logged_in"]:
             print("Not logged in. Run: python3 gsb.py login")
         elif st.get("directory") is False:
             print("Logged in to CampusGroups, but not to the myCBS directory. Run: python3 gsb.py login")
+        elif st.get("careers") is False:
+            print("Logged in to CampusGroups, but not to 12twenty. Run: python3 gsb.py login")
         else:
             print("Logged in.")
         sys.exit(0 if ok else 1)
+    if cmd == "import-ace-book":
+        import ace_book
+        if not args:
+            sys.exit("Usage: python3 gsb.py import-ace-book <path to the ACE Book PDF>")
+        n = ace_book.import_pdf(args[0])
+        print(f"Imported {n} people from the ACE Book. Saved only on this computer ({ace_book.ACE_FILE}).")
+        return
     if cmd == "serve":
         import uvicorn
         uvicorn.run("api:app", host="127.0.0.1", port=8765)

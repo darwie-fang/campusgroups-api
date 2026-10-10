@@ -125,6 +125,18 @@ else
   ok "Logged in"
 fi
 
+# --- 4b. ACE Book (optional; stays on this computer) -----------------------------
+if [[ ! -f "$HOME/.gsb-api/ace_book.json" ]]; then
+  ACE_PDF="$(ls -t "$HOME"/Downloads/*[Aa][Cc][Ee]*[Bb]ook*.pdf 2>/dev/null | head -n 1)"
+  if [[ -n "$ACE_PDF" ]]; then
+    bold "4b. CMC ACE Book"
+    info "Found $(basename "$ACE_PDF") in Downloads. Importing it lets Claude match you with fellows."
+    if ask "Import it? (stays on this computer only)"; then
+      "$VPy" "$DIR/gsb.py" import-ace-book "$ACE_PDF" && ok "ACE Book imported" || info "Couldn't read it; you can import it later."
+    fi
+  fi
+fi
+
 # --- 5. Connect to the Claude app ------------------------------------------------
 bold "5. Connect to the Claude app"
 if [[ ! -d "/Applications/Claude.app" && ! -d "$HOME/Applications/Claude.app" ]]; then

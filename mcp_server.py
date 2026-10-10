@@ -19,8 +19,9 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from gsb_client import GSBClient, SessionExpired  # noqa: E402
+import ace_book  # noqa: E402
 
-SERVER = {"name": "campusgroups", "version": "0.4"}
+SERVER = {"name": "campusgroups", "version": "0.5"}
 gsb = GSBClient()
 
 DATE = {"type": "string", "description": "YYYY-MM-DD"}
@@ -88,6 +89,55 @@ TOOLS = [
             "required": ["name"]},
     },
     {
+        "name": "find_ace_people",
+        "description": "Search the CMC ACE Book (advisors, coaches, fellows, executives in residence) by "
+                       "industry, function, company (summer internship / pre-MBA / previous companies), "
+                       "keyword or name, to pick who to book an appointment with. All filters optional "
+                       "and combined. role: fellow, coach, advisor or executive.",
+        "inputSchema": {"type": "object", "properties": {
+            "role": {"type": "string"}, "industry": {"type": "string"}, "function": {"type": "string"},
+            "company": {"type": "string"}, "keyword": {"type": "string"}, "name": {"type": "string"}}},
+    },
+    {
+        "name": "appointment_slots",
+        "description": "Open CMC appointment times in 12twenty (New York time) between two dates "
+                       "(default: the next 7 days). Filter by adviser name, or role ('fellow', 'coach', "
+                       "'advisor' - uses the ACE Book), or by an ACE Book search (industry/company) to "
+                       "only show matching people. Each slot is a window: any start inside it works.",
+        "inputSchema": {"type": "object", "properties": {
+            "start": DATE, "end": DATE, "adviser": {"type": "string"}, "role": {"type": "string"},
+            "industry": {"type": "string"}, "company": {"type": "string"}, "function": {"type": "string"}}},
+    },
+    {
+        "name": "my_appointments",
+        "description": "The user's upcoming CMC appointments in 12twenty, with ids for cancel_appointment.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "book_appointment",
+        "description": "Book a CMC appointment in 12twenty in the user's name (a real booking). Never "
+                       "guess a missing detail: if the person, date, start time, length (15/30/45/60 min) "
+                       "or topic is missing, ask the user. BEFORE calling it, state the person, date, "
+                       "time, length and topic and get an explicit yes; then pass confirmed=true. One "
+                       "appointment per request; never book several to 'hold' them.",
+        "inputSchema": {"type": "object", "properties": {
+            "adviser": {"type": "string", "description": "Name of the fellow/adviser/coach"},
+            "date": DATE, "start": TIME,
+            "minutes": {"type": "integer", "description": "15, 30, 45 or 60"},
+            "topic": {"type": "string", "description": "What the user wants to discuss, in their words"},
+            "appointment_type": {"type": "string", "description": "Only if the slot offers several types"},
+            "confirmed": {"type": "boolean"}},
+            "required": ["adviser", "date", "start", "minutes", "topic", "confirmed"]},
+    },
+    {
+        "name": "cancel_appointment",
+        "description": "Cancel one of the user's CMC appointments (id from my_appointments). Confirm which "
+                       "one with the user first, then pass confirmed=true.",
+        "inputSchema": {"type": "object", "properties": {
+            "appointment_id": {"type": "string"}, "confirmed": {"type": "boolean"}},
+            "required": ["appointment_id", "confirmed"]},
+    },
+    {
         "name": "book_room",
         "description": "Reserve a room on CampusGroups in the user's name. This makes a real booking. "
                        "Never guess or fill in a detail the user didn't give: if the room, date, start "
@@ -152,6 +202,32 @@ def call_tool(name, a):
     if name in ("book_room", "cancel_booking") and a.get("confirmed") is not True:
         raise ValueError("Not done: confirm the exact details with the user first, then call again "
                          "with confirmed=true.")
+    if name == "find_ace_people":
+        hits = ace_book.search(ace_book.load(), a.get("role"), a.get("industry"), a.get("function"),
+                               a.get("company"), a.get("keyword"), a.get("name"))
+        return {"count": len(hits), "people": [{"name": p["name"], "role": p["role"],
+                **({"class_of": "'" + p["class_of"]} if p.get("class_of") else {}), **p["fields"],
+                **({"bio": p["bio"][:400]} if p.get("bio") else {})} for p in hits[:25]],
+                **({"note": f"Showing 25 of {len(hits)}; narrow the search."} if len(hits) > 25 else {})}
+    if name == "appointment_slots":
+        r = gsb.appointment_slots(a.get("start"), a.get("end"), a.get("adviser"))
+        if any(a.get(k) for k in ("role", "industry", "company", "function")):
+            wanted = {ace_book._norm(p["name"]) for p in ace_book.search(
+                ace_book.load(), a.get("role"), a.get("industry"), a.get("function"), a.get("company"))}
+            r["slots"] = [x for x in r["slots"] if ace_book._norm(x["adviser"]) in wanted]
+            r["count"] = len(r["slots"])
+            r["filtered_by_ace_book"] = True
+        return r
+    if name == "my_appointments":
+        return gsb.my_appointments()
+    if name in ("book_appointment", "cancel_appointment") and a.get("confirmed") is not True:
+        raise ValueError("Not done: confirm the exact details with the user first, then call again "
+                         "with confirmed=true.")
+    if name == "book_appointment":
+        return gsb.book_appointment(a["adviser"], a["date"], a["start"], a["topic"],
+                                    int(a.get("minutes") or 0), a.get("appointment_type"))
+    if name == "cancel_appointment":
+        return gsb.cancel_appointment(a["appointment_id"])
     if name == "find_person_email":
         return gsb.find_person_email(a["name"], a.get("class_year"))
     if name == "book_room":
@@ -181,7 +257,7 @@ def handle(msg):
             text = ("Not logged in to CampusGroups (the login may have expired). Ask the user "
                     "to open Terminal, paste this line and press Enter, then sign in with "
                     "their UNI and Duo:\n" + f"bash '{os.path.join(HERE, 'setup.sh')}'")
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, FileNotFoundError) as e:
             text = str(e).strip("'\"")
         except Exception as e:  # network trouble, site changes, etc.
             traceback.print_exc(file=sys.stderr)
