@@ -145,5 +145,14 @@ class CareerEvents(unittest.TestCase):
         self.assertFalse([c for c in self.site.calls if c[0] == "POST" and "registrations" in c[1]])
 
 
+class SignedOutOf12twenty(unittest.TestCase):
+    def test_empty_who_am_i_means_signed_out(self):
+        # 12twenty answers 204 (empty) to "who am I?" when you're not signed in.
+        c = g.GSBClient()
+        c._tw = lambda method, path, body=None, referer=None: None
+        with self.assertRaises(g.SessionExpired):
+            c.career_events()
+
+
 if __name__ == "__main__":
     unittest.main()

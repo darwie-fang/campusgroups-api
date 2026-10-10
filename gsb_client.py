@@ -85,19 +85,50 @@ def login(timeout_minutes: int = 5) -> None:
         except Exception:
             print("Note: couldn't sign in to myCBS, so looking up classmates' emails won't work. "
                   "Everything else will. Run the login again to retry.")
-        # 12twenty (career management: jobs, OCI, events), same Columbia SSO, usually no click.
+        # 12twenty (career management: jobs, OCI, events), same Columbia SSO. Don't trust
+        # the URL: keep asking 12twenty "who am I?" until it knows you, clicking its
+        # sign-in button if one shows up.
         try:
+            import re as _re
             page.goto(f"{TWELVE}/dashboard")
-            page.wait_for_url(lambda url: url.startswith(TWELVE) and "login" not in url.lower(),
-                              timeout=90_000)
+            deadline, clicked = time.time() + 120, False
+            while not _tw_page_signed_in(page):
+                if time.time() > deadline:
+                    raise TimeoutError
+                if not clicked and page.url.startswith(TWELVE):
+                    for pat in ("sso", "columbia", "sign in", "log in", "login"):
+                        try:
+                            page.get_by_role("link", name=_re.compile(pat, _re.I)).or_(
+                                page.get_by_role("button", name=_re.compile(pat, _re.I))).first.click(timeout=1500)
+                            clicked = True
+                            break
+                        except Exception:
+                            pass
+                page.wait_for_timeout(2000)
             page.wait_for_load_state("networkidle")
         except Exception:
-            print("Note: couldn't sign in to 12twenty. Everything else works; run the login again to retry.")
+            print("Note: couldn't sign in to 12twenty (events and CMC appointments won't work). "
+                  "Everything else works; run the login again to retry.")
         SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
         ctx.storage_state(path=str(SESSION_FILE))
         os.chmod(SESSION_FILE, 0o600)
         browser.close()
     print(f"Logged in. Session saved to {SESSION_FILE} (only your user can read it).")
+
+
+def _tw_page_signed_in(page) -> bool:
+    """True once 12twenty's API recognises you in the login browser."""
+    try:
+        if not page.url.startswith(TWELVE):
+            return False
+        return bool(page.evaluate("""async () => {
+            const r = await fetch('/api/v2/account/current-user', {headers: {Accept: 'application/json'}});
+            if (r.status !== 200) return false;
+            const t = await r.text(); if (!t.trim().startsWith('{')) return false;
+            const j = JSON.parse(t); return !!(j && j.Id);
+        }"""))
+    except Exception:
+        return False
 
 
 def logout() -> None:
@@ -230,7 +261,7 @@ class GSBClient:
         except Exception:
             directory = None                           # site trouble, not a login problem
         try:
-            self._tw("GET", "/api/v2/account/current-user")
+            self._tw_student_id()                      # signed out = empty answer, not an error
             careers = True
         except SessionExpired:
             careers = False
@@ -815,6 +846,8 @@ class GSBClient:
     def _tw_student_id(self) -> int:
         def load():
             me = self._tw("GET", "/api/v2/account/current-user") or {}
+            if not me:       # 12twenty answers "204 No Content" when you're not signed in
+                raise SessionExpired("Not signed in to 12twenty. Run the login again.")
             # Confirmed live: for students, current-user's Id is the student id.
             for k in ("StudentId", "Id", "EntityId", "UserId"):
                 v = me.get(k) if isinstance(me, dict) else None
