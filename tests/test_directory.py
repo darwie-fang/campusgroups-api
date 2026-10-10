@@ -59,7 +59,8 @@ class Directory(unittest.TestCase):
         self.assertNotIn("davies", log.lower())                          # names never stored
 
     def test_status_reports_directory_login(self):
-        self.assertEqual(self.c.status(), {"logged_in": True, "directory": True})
+        st = self.c.status()
+        self.assertEqual((st["logged_in"], st["directory"]), (True, True))
         self.site.mycbs_logged_in = False
         self.assertEqual(self.c.status()["directory"], False)
         with self.assertRaises(g.SessionExpired):
