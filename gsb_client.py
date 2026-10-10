@@ -27,6 +27,7 @@ import requests
 
 BASE = "https://groups.gsb.columbia.edu"
 MYCBS = "https://mycbs.gsb.columbia.edu"
+TWELVE = "https://business-columbia.12twenty.com"
 TZ = ZoneInfo("America/New_York")
 SESSION_DIR = Path.home() / ".gsb-api"
 SESSION_FILE = SESSION_DIR / "session.json"
@@ -84,6 +85,14 @@ def login(timeout_minutes: int = 5) -> None:
         except Exception:
             print("Note: couldn't sign in to myCBS, so looking up classmates' emails won't work. "
                   "Everything else will. Run the login again to retry.")
+        # 12twenty (career management: jobs, OCI, events), same Columbia SSO, usually no click.
+        try:
+            page.goto(f"{TWELVE}/dashboard")
+            page.wait_for_url(lambda url: url.startswith(TWELVE) and "login" not in url.lower(),
+                              timeout=90_000)
+            page.wait_for_load_state("networkidle")
+        except Exception:
+            print("Note: couldn't sign in to 12twenty. Everything else works; run the login again to retry.")
         SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
         ctx.storage_state(path=str(SESSION_FILE))
         os.chmod(SESSION_FILE, 0o600)
