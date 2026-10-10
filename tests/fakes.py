@@ -60,6 +60,16 @@ class FakeSite:
             ("Executive Education", 99, "ExecEd", self.d2, 9, "Exec Ed Day", "0"),
         ]
         self.reservations = []      # dicts: id, room_id, start(ms), end(ms), title, status
+        # myCBS directory (made-up people)
+        self.directory = [
+            ("Sam", "Davies", "Class of 2028", "sdavies28@example.edu"),
+            ("Pat", "Lee", "Class of 2028", "plee28@example.edu"),
+            ("Pat", "Lee", "Class of 2027", "plee27@example.edu"),
+            ("Sam", "Davidson", "Class of 2027", "sdavidson27@example.edu"),
+            ("Robin", "Noemail", "Class of 2028", None),
+        ]
+        self.mycbs_logged_in = True
+        self.mycbs_queries = []
         self.posts = []
         self.logged_in = True
 
@@ -132,6 +142,26 @@ class FakeSite:
             return out
         return []
 
+    def mycbs_get(self, path, params):
+        if not self.mycbs_logged_in:
+            raise g.SessionExpired("mycbs expired")
+        who = params.get("query[who]", "").lower()
+        self.mycbs_queries.append(who)
+        out = []
+        for i, (first, last, year, email) in enumerate(self.directory):
+            full = f"{first} {last}".lower()
+            if who and all(w in full for w in who.split()) or (who and who.split()[0] in full and len(who.split()) == 1):
+                attrs = [{"attribute_type": "text", "display_name": "Class Year / Affiliation", "value": year}]
+                if email:
+                    attrs.append({"attribute_type": "email", "display_name": "Primary email", "value": email})
+                out.append({"id": 1000 + i, "first_name": first, "last_name": last, "card": {"attributes": attrs}})
+        # loose matches too (what a real search returns for partial names)
+        if who and not out:
+            for i, (first, last, year, email) in enumerate(self.directory):
+                if who.split()[0][:3] in first.lower():
+                    out.append({"id": 1000 + i, "first_name": first, "last_name": last, "card": {"attributes": []}})
+        return {"users": out, "total": len(out)}
+
     def get_html(self, path, **p):
         if path == "/room_reservation_form":
             return '<form id="table_form" action="/room_reservation_form" method="POST"><input type="hidden" name="_csrf" value="FORMTOKEN"></form>'
@@ -163,4 +193,5 @@ class FakeSite:
         client._get = self.get
         client._get_html = self.get_html
         client._post = self.post
+        client._mycbs_get = self.mycbs_get
         return client

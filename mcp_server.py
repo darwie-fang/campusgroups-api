@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from gsb_client import GSBClient, SessionExpired  # noqa: E402
 
-SERVER = {"name": "campusgroups", "version": "0.3"}
+SERVER = {"name": "campusgroups", "version": "0.4"}
 gsb = GSBClient()
 
 DATE = {"type": "string", "description": "YYYY-MM-DD"}
@@ -72,6 +72,20 @@ TOOLS = [
         "name": "my_room_reservations",
         "description": "The user's upcoming room reservations, with ids for cancel_booking.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "find_person_email",
+        "description": "Look up the email of ONE specific person, named by the user, in the CBS "
+                       "myCBS directory, so the user can email or invite them (e.g. 'send Sam Davies "
+                       "an invite to my booking'). Needs first and last name. Only use it when the "
+                       "user wants to contact that person; never to build lists, look up many people, "
+                       "or search by anything other than a name. If several people share the name, "
+                       "ask the user which one and call again with class_year. Don't repeat the "
+                       "email back unless it's needed for the message or invite.",
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "First and last name, e.g. 'Sam Davies'"},
+            "class_year": {"type": "string", "description": "Only to pick between people with the same name, e.g. '2028'"}},
+            "required": ["name"]},
     },
     {
         "name": "book_room",
@@ -138,6 +152,8 @@ def call_tool(name, a):
     if name in ("book_room", "cancel_booking") and a.get("confirmed") is not True:
         raise ValueError("Not done: confirm the exact details with the user first, then call again "
                          "with confirmed=true.")
+    if name == "find_person_email":
+        return gsb.find_person_email(a["name"], a.get("class_year"))
     if name == "book_room":
         return gsb.book_room(a["room"], a["date"], a["start"], a["title"], end=a["end"])
     if name == "cancel_booking":

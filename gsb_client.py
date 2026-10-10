@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 BASE = "https://groups.gsb.columbia.edu"
+MYCBS = "https://mycbs.gsb.columbia.edu"
 TZ = ZoneInfo("America/New_York")
 SESSION_DIR = Path.home() / ".gsb-api"
 SESSION_FILE = SESSION_DIR / "session.json"
@@ -58,6 +59,19 @@ def login(timeout_minutes: int = 5) -> None:
             timeout=timeout_minutes * 60_000,
         )
         page.wait_for_load_state("networkidle")
+        # myCBS (people directory) has its own login, through the same Columbia SSO.
+        # Usually no second Duo push, since you just signed in.
+        try:
+            page.goto(f"{MYCBS}/people")
+            page.wait_for_load_state("networkidle")
+            if "/login" in page.url:
+                page.get_by_text("Sign in with your SSO Account").click()
+                page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
+                                  timeout=timeout_minutes * 60_000)
+                page.wait_for_load_state("networkidle")
+        except Exception:
+            print("Note: couldn't sign in to myCBS, so looking up classmates' emails won't work. "
+                  "Everything else will. Run the login again to retry.")
         SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
         ctx.storage_state(path=str(SESSION_FILE))
         os.chmod(SESSION_FILE, 0o600)
@@ -185,9 +199,109 @@ class GSBClient:
     def status(self) -> dict:
         try:
             self._get("/mobile_ws/v17/mobile_header_groups", search="", all="false")
-            return {"logged_in": True}
         except SessionExpired as e:
             return {"logged_in": False, "detail": str(e)}
+        try:
+            self._mycbs_search("zz-login-check")      # a name nobody has; just tests the session
+            directory = True
+        except SessionExpired:
+            directory = False
+        except Exception:
+            directory = None                           # site trouble, not a login problem
+        return {"logged_in": True, "directory": directory}
+
+    # -- myCBS people directory (one person at a time) ----------------------
+
+    LOOKUP_LIMIT_PER_HOUR = 20
+    LOOKUP_LOG = SESSION_DIR / "lookups.json"     # only hashed names + times, never names/emails
+
+    def _mycbs_search(self, who: str) -> list:
+        params = {"page": 1, "per_page": 18, "sort_by": "last_seen_at", "order": "desc",
+                  "source": "people_directory_list",
+                  "query[exclude_current_user]": "false", "query[last_location]": "false",
+                  "query[include_users_with_no_locations]": "false", "query[who]": who}
+        data = self._mycbs_get("/frontoffice/api/users", params)
+        if isinstance(data, dict):
+            for key in ("users", "data", "results", "items", "records"):
+                if isinstance(data.get(key), list):
+                    return data[key]
+            return []
+        return data if isinstance(data, list) else []
+
+    def _mycbs_get(self, path: str, params: dict) -> object:
+        r = self._session().get(f"{MYCBS}{path}", params=params, timeout=20, allow_redirects=False,
+                                headers={"Accept": "application/json", "Referer": f"{MYCBS}/people"})
+        if r.status_code in (301, 302, 401, 403) or not r.text.strip().startswith(("[", "{")):
+            raise SessionExpired("myCBS session expired. Run the login again.")
+        return r.json()
+
+    @staticmethod
+    def _person_summary(u: dict) -> dict:
+        """Name, class year and email from a directory record (attributes are a list of
+        {attribute_type, display_name, value})."""
+        def walk(o):
+            if isinstance(o, dict):
+                yield o
+                for v in o.values():
+                    yield from walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    yield from walk(v)
+        email = year = None
+        for d in walk(u):
+            if d.get("attribute_type") == "email" and isinstance(d.get("value"), str) and not email:
+                email = d["value"].strip()
+            if re.search(r"class year|affiliation", str(d.get("display_name", "")), re.I) and d.get("value") and not year:
+                year = _strip_html(str(d["value"]))
+        first = u.get("first_name") or u.get("firstname") or u.get("firstName")
+        last = u.get("last_name") or u.get("lastname") or u.get("lastName")
+        name = (u.get("full_name") or u.get("fullName") or u.get("display_name") or u.get("name")
+                or " ".join(x for x in (first, last) if x) or "")
+        name = str(name).strip()
+        return {"name": html.unescape(name), "class": year, "email": email}
+
+    def _check_lookup_limit(self, key: str) -> None:
+        import hashlib
+        h = hashlib.sha256(key.encode()).hexdigest()
+        now = time.time()
+        try:
+            log = json.loads(self.LOOKUP_LOG.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            log = {}
+        log = {k: t for k, t in log.items() if now - t < 3600}
+        if h not in log and len(log) >= self.LOOKUP_LIMIT_PER_HOUR:
+            raise ValueError(f"You've looked up {self.LOOKUP_LIMIT_PER_HOUR} different people in the "
+                             "last hour. That's the limit; try again a bit later.")
+        log[h] = log.get(h, now)
+        try:
+            SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
+            self.LOOKUP_LOG.write_text(json.dumps(log), encoding="utf-8")
+        except OSError:
+            pass
+
+    def find_person_email(self, name: str, class_year: str | None = None) -> dict:
+        """Email of ONE named person from the myCBS directory. Needs a first and last
+        name; returns an email only for a single exact match. Nothing is saved."""
+        words = re.findall(r"[^\W\d_][\w'\-.]*", name or "")
+        if len(words) < 2 or any(len(w) < 2 for w in words[:2]):
+            raise ValueError("Give the person's first and last name (e.g. 'Sam Davies').")
+        norm = " ".join(w.lower() for w in words)
+        self._check_lookup_limit(norm)
+        people = [self._person_summary(u) for u in self._mycbs_search(" ".join(words))]
+        exact = [p for p in people if " ".join(re.findall(r"[^\W\d_][\w'\-.]*", p["name"].lower())) == norm]
+        if class_year:
+            exact = [p for p in exact if p["class"] and class_year.lower() in p["class"].lower()]
+        if len(exact) == 1 and exact[0]["email"]:
+            return {"found": True, "name": exact[0]["name"], "class": exact[0]["class"], "email": exact[0]["email"]}
+        if len(exact) == 1:
+            return {"found": False, "message": f"{exact[0]['name']} is in the directory but hasn't shared an email."}
+        if len(exact) > 1:
+            return {"found": False, "message": "Several people have that name. Ask the user which one, "
+                    "then call again with class_year.",
+                    "candidates": [{"name": p["name"], "class": p["class"]} for p in exact[:5]]}
+        close = [p["name"] for p in people][:5]
+        return {"found": False, "message": f"No exact match for '{name}' in the myCBS directory.",
+                "did_you_mean": close}
 
     # -- clubs ------------------------------------------------------------
 

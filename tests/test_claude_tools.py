@@ -48,7 +48,7 @@ class ClaudeTools(unittest.TestCase):
         self.assertEqual(res[1]["result"]["protocolVersion"], "2025-06-18")
         tools = {t["name"]: t for t in res[2]["result"]["tools"]}
         self.assertEqual(set(tools), {"list_my_clubs", "get_club_events", "get_all_events", "find_free_rooms",
-                                      "my_room_reservations", "book_room", "cancel_booking"})
+                                      "my_room_reservations", "book_room", "cancel_booking", "find_person_email"})
         self.assertIn("Never guess", tools["book_room"]["description"])
         self.assertTrue(res[3]["result"]["isError"])                 # not confirmed -> refused
         self.assertEqual(len([p for p in site.posts if p[0] == "/room_reservation_form"]), 1)   # only the confirmed one

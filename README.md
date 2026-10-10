@@ -72,6 +72,7 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Your upcoming room reservations | `my_room_reservations` |
 | Book a room ("book Geffen 504 today 3-4pm") | `book_room` (Claude confirms first) |
 | Cancel a booking | `cancel_booking` (Claude confirms first) |
+| A classmate's email, to email or invite them ("send Sam Davies an invite") | `find_person_email` (one named person at a time) |
 
 Room availability works for any upcoming date, but **study rooms only open for booking a few days ahead**;
 before that, a day shows no free rooms. CMC interview rooms are hidden unless you ask for them.
@@ -89,6 +90,9 @@ shows up in your CampusGroups reservations.
   `python3 gsb.py logout` (inside the project folder) deletes them.
 - Nothing leaves your laptop except requests to CampusGroups itself.
 - CampusGroups' room data includes other students' names. This tool drops them and only shows free/busy times.
+- **Email look-ups** use the myCBS People directory with your own login, for **one named person at a time**
+  (first and last name). If several people share a name, Claude asks which one; it never returns lists of emails.
+  Max 20 different people per hour. Names and emails aren't saved (only anonymous counts for the hourly limit).
 - **Never share** your `~/.gsb-api` folder. It's your login. Sharing the project folder or the GitHub link is fine.
 
 ---

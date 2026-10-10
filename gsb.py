@@ -29,9 +29,15 @@ def main(argv: list[str]) -> None:
         return login()
     if cmd == "logout":
         return logout()
-    if cmd == "status":   # exit code 0 = logged in, 1 = not
-        ok = GSBClient().status()["logged_in"]
-        print("Logged in." if ok else "Not logged in. Run: python3 gsb.py login")
+    if cmd == "status":   # exit code 0 = logged in to CampusGroups and myCBS, 1 = not
+        st = GSBClient().status()
+        ok = st["logged_in"] and st.get("directory") is not False
+        if not st["logged_in"]:
+            print("Not logged in. Run: python3 gsb.py login")
+        elif st.get("directory") is False:
+            print("Logged in to CampusGroups, but not to the myCBS directory. Run: python3 gsb.py login")
+        else:
+            print("Logged in.")
         sys.exit(0 if ok else 1)
     if cmd == "serve":
         import uvicorn
