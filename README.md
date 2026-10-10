@@ -73,6 +73,9 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Book a room ("book Geffen 504 today 3-4pm") | `book_room` (Claude confirms first) |
 | Cancel a booking | `cancel_booking` (Claude confirms first) |
 | A classmate's email, to email or invite them ("send Sam Davies an invite") | `find_person_email` (one named person at a time) |
+| Who to talk to: fellows, coaches, advisors by industry, function or company ("a fellow who interned at Goldman") | `find_ace_people` (CMC ACE Book) |
+| Open CMC appointment times, optionally only matching fellows | `appointment_slots` |
+| Book / list / cancel CMC appointments in 12twenty | `book_appointment`, `my_appointments`, `cancel_appointment` (Claude confirms first) |
 
 Room availability works for any upcoming date, but **study rooms only open for booking a few days ahead**;
 before that, a day shows no free rooms. CMC interview rooms are hidden unless you ask for them.
@@ -93,6 +96,8 @@ shows up in your CampusGroups reservations.
 - **Email look-ups** use the myCBS People directory with your own login, for **one named person at a time**
   (first and last name). If several people share a name, Claude asks which one; it never returns lists of emails.
   Max 20 different people per hour. Names and emails aren't saved (only anonymous counts for the hourly limit).
+- The **CMC ACE Book** is downloaded from CMC's own public link during setup (and refreshed monthly).
+  It's never stored in this repo; the profiles are kept only on your laptop.
 - **Never share** your `~/.gsb-api` folder. It's your login. Sharing the project folder or the GitHub link is fine.
 
 ---
