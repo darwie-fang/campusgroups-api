@@ -68,10 +68,14 @@ def login(timeout_minutes: int = 5) -> None:
             if "/login" in page.url:
                 import re as _re
                 # The cookie banner can sit on top of the page and swallow the click.
-                try:
-                    page.get_by_role("button", name=_re.compile("reject all", _re.I)).click(timeout=3000)
-                except Exception:
-                    pass
+                # It can appear a few seconds after the page, so wait for it.
+                for loc in (page.get_by_role("button", name=_re.compile(r"^\s*reject all\s*$", _re.I)),
+                            page.get_by_text(_re.compile(r"^\s*reject all\s*$", _re.I))):
+                    try:
+                        loc.first.click(timeout=8000)
+                        break
+                    except Exception:
+                        pass
                 # The button has been "Sign in with your SSO Account" and is now
                 # "Alumni/UNI Login"; match either (link or button).
                 sso = _re.compile(r"alumni\s*/\s*uni login|uni login|sign in with your sso|sso", _re.I)
@@ -83,7 +87,12 @@ def login(timeout_minutes: int = 5) -> None:
                         clicked = True
                         break
                     except Exception:
-                        pass
+                        try:                        # something still on top: click through it
+                            loc.first.click(timeout=2000, force=True)
+                            clicked = True
+                            break
+                        except Exception:
+                            pass
                 if not clicked:
                     print("Click 'Alumni/UNI Login' in the browser window to finish.")
                 try:
