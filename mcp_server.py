@@ -190,9 +190,8 @@ TOOLS = [
     },
     {
         "name": "find_free_food",
-        "description": "In-person CBS events with food (New York time): CampusGroups events whose "
-                       "organiser ticked 'Food Provided', events with food in the title, and 12twenty "
-                       "recruiting events whose description mentions food (receptions, lunches). "
+        "description": "In-person CampusGroups events with food (New York time): the organiser ticked "
+                       "'Food Provided', or the title mentions food. "
                        "Default: the rest of today and tomorrow; max a week. Paid events are left out "
                        "unless include_paid. Tell the user when an event needs registration, and that "
                        "'confidence: low' means only the title suggests food. Can take ~10 seconds.",

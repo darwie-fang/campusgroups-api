@@ -78,7 +78,7 @@ from running tools in those folders. (The installer puts it in `~/Projects` for 
 | Book / list / cancel CMC appointments in 12twenty | `book_appointment`, `my_appointments`, `cancel_appointment` (Claude confirms first) |
 | Recruiting events in 12twenty: info sessions, coffee chats, CMC workshops, by date, company, type or keyword | `career_events`, `career_event_details` |
 | Sign up for / cancel a 12twenty event, or join its waitlist | `register_career_event`, `my_career_events`, `cancel_career_event_registration` (Claude confirms first; time-slot coffee chats and events needing a resume upload or answers are done on 12twenty, and Claude gives you the link) |
-| Free food: in-person events with food today and tomorrow (or any dates within a week) | `find_free_food` (CampusGroups' "Food Provided" flag, food in event titles, and 12twenty receptions/lunches) |
+| Free food: in-person events with food today and tomorrow (or any dates within a week) | `find_free_food` (CampusGroups' "Food Provided" flag and food in event titles) |
 
 Room availability works for any upcoming date, but **study rooms only open for booking a few days ahead**;
 before that, a day shows no free rooms. CMC interview rooms are hidden unless you ask for them.
