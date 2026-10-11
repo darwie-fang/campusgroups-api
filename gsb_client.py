@@ -72,20 +72,27 @@ def login(timeout_minutes: int = 5) -> None:
                     page.get_by_role("button", name=_re.compile("reject all", _re.I)).click(timeout=3000)
                 except Exception:
                     pass
-                try:
-                    page.get_by_role("button", name=_re.compile("sign in with your sso", _re.I)).click(timeout=5000)
-                except Exception:
+                # The button has been "Sign in with your SSO Account" and is now
+                # "Alumni/UNI Login"; match either (link or button).
+                sso = _re.compile(r"alumni\s*/\s*uni login|uni login|sign in with your sso|sso", _re.I)
+                clicked = False
+                for loc in (page.get_by_role("button", name=sso), page.get_by_role("link", name=sso),
+                            page.get_by_text(sso)):
                     try:
-                        page.get_by_text(_re.compile("sign in with your sso", _re.I)).first.click(timeout=5000, force=True)
+                        loc.first.click(timeout=4000)
+                        clicked = True
+                        break
                     except Exception:
-                        print("Click 'Sign in with your SSO Account' in the browser window to finish.")
+                        pass
+                if not clicked:
+                    print("Click 'Alumni/UNI Login' in the browser window to finish.")
                 try:
                     page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
                                       timeout=20_000)
                 except Exception:
                     # Auto-click didn't get through: ask the user, but don't block the
                     # rest of the login (12twenty) for long. myCBS is only for email lookup.
-                    print("\n  >>> In the browser window, click 'Sign in with your SSO Account' on myCBS.")
+                    print("\n  >>> In the browser window, click 'Alumni/UNI Login' on myCBS.")
                     print("      (Skipping it in 2 minutes if not; only classmate email lookup needs it.)\n")
                     page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
                                       timeout=120_000)
