@@ -602,12 +602,16 @@ class GSBClient:
         return val
 
     def _event_page(self, event_id: str) -> str | None:
+        """The event's page. /rsvp_boot?id=N always redirects to the host club's copy
+        (/{club}/rsvp_boot?id=N), so follow it, but only within CampusGroups and never to a
+        login page. Alumni events can redirect off-site; those are skipped."""
         try:
-            r = self._session().get(f"{BASE}/rsvp_boot", params={"id": event_id}, timeout=15,
-                                    allow_redirects=False)
+            r = self._session().get(f"{BASE}/rsvp_boot", params={"id": event_id}, timeout=15)
         except requests.RequestException:
             return None
-        return r.text if r.status_code == 200 else None
+        if r.status_code != 200 or not r.url.startswith(BASE) or "/login" in r.url:
+            return None
+        return r.text
 
     def free_food(self, start: str | date | None = None, end: str | date | None = None,
                   include_paid: bool = False) -> dict:
