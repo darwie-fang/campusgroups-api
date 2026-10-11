@@ -79,8 +79,16 @@ def login(timeout_minutes: int = 5) -> None:
                         page.get_by_text(_re.compile("sign in with your sso", _re.I)).first.click(timeout=5000, force=True)
                     except Exception:
                         print("Click 'Sign in with your SSO Account' in the browser window to finish.")
-                page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
-                                  timeout=timeout_minutes * 60_000)
+                try:
+                    page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
+                                      timeout=20_000)
+                except Exception:
+                    # Auto-click didn't get through: ask the user, but don't block the
+                    # rest of the login (12twenty) for long. myCBS is only for email lookup.
+                    print("\n  >>> In the browser window, click 'Sign in with your SSO Account' on myCBS.")
+                    print("      (Skipping it in 2 minutes if not; only classmate email lookup needs it.)\n")
+                    page.wait_for_url(lambda url: url.startswith(MYCBS) and "/login" not in url,
+                                      timeout=120_000)
                 page.wait_for_load_state("networkidle")
         except Exception:
             print("Note: couldn't sign in to myCBS, so looking up classmates' emails won't work. "

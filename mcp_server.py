@@ -337,8 +337,10 @@ def handle(msg):
         try:
             data = call_tool(p.get("name"), p.get("arguments") or {})
             return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
-        except SessionExpired:
-            text = ("Not logged in to CampusGroups (the login may have expired). Ask the user "
+        except SessionExpired as e:
+            site = ("12twenty" if "12twenty" in str(e) else "myCBS" if "myCBS" in str(e)
+                    else "CampusGroups")
+            text = (f"Not logged in to {site} (the login may have expired). Ask the user "
                     "to open Terminal, paste this line and press Enter, then sign in with "
                     "their UNI and Duo:\n" + f"bash '{os.path.join(HERE, 'setup.sh')}'")
         except (KeyError, ValueError, FileNotFoundError) as e:
