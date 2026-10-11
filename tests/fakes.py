@@ -72,6 +72,8 @@ class FakeSite:
         self.mycbs_queries = []
         self.posts = []
         self.logged_in = True
+        self.food_events = {"1"}     # feed event ids whose organiser ticked "Food Provided"
+        self.event_pages = []
 
     # ---- data builders ----
     def _schedule(self, room_id, week_start):
@@ -167,6 +169,11 @@ class FakeSite:
             return '<form id="table_form" action="/room_reservation_form" method="POST"><input type="hidden" name="_csrf" value="FORMTOKEN"></form>'
         if path == "/room_reservation_details":
             return 'function cancelReservation%s(){ jQuery.ajax({ data: { id: %s, action: "cancel", _csrf: "CANCELTOKEN" } }) }' % (p["id"], p["id"])
+        if path == "/rsvp_boot":
+            self.event_pages.append(str(p["id"]))
+            food = ('<div style="margin: 10px 0;"> <div style="display: inline-block;"><span class="grey-element mdi mdi-food">'
+                    '</span></div> <div> Food Provided </div> </div>') if str(p["id"]) in self.food_events else ""
+            return f"<html><!-- Event Dress Code --> <!-- Food Provided --> {food} <!-- More Details --></html>"
         return ""
 
     def post(self, path, data, referer):

@@ -575,6 +575,93 @@ class GSBClient:
             events = [e for e in events if e["registered"]]
         return {"start": d0.isoformat(), "end": d1.isoformat(), "count": len(events), "events": events}
 
+    # -- free food ----------------------------------------------------------
+
+    # CampusGroups event pages carry an organiser-set "Food Provided" flag:
+    #   <!-- Food Provided --> <div ...><div ...><span class="... mdi-food"> ... Food Provided
+    # (the comment is always there; the div only when the box was ticked).
+    FOOD_FLAG_RE = re.compile(r"<!--\s*Food Provided\s*-->\s*<div[^>]*>\s*<div[^>]*>\s*<span[^>]*mdi-food", re.I)
+    FOOD_WORDS = re.compile(r"\b(free food|food|lunch|dinner|breakfast|brunch|pizza|bagels?|snacks?|"
+                            r"refreshments?|catered|catering|reception|happy hour|drinks|"
+                            r"hors d'?oeuvres|tacos?|dumplings?|ice cream|wine)\b", re.I)
+    ONLINE = re.compile(r"\b(virtual|zoom|online|webinar|teams)\b", re.I)
+
+    def _food_provided(self, event_id: str) -> bool:
+        return self._cached(f"food:{event_id}", lambda: bool(
+            self.FOOD_FLAG_RE.search(self._get_html("/rsvp_boot", id=event_id))))
+
+    def free_food(self, start: str | date | None = None, end: str | date | None = None,
+                  include_paid: bool = False) -> dict:
+        """In-person events with food: CampusGroups events whose organiser ticked "Food
+        Provided", plus 12twenty events whose description mentions food. Default: the rest
+        of today and tomorrow. Times are New York time."""
+        from concurrent.futures import ThreadPoolExecutor
+        now = datetime.now(TZ)
+        d0 = _parse_date(start, now.date())
+        d1 = _parse_date(end, d0 + timedelta(days=1))
+        if d1 < d0:
+            raise ValueError("The end date is before the start date.")
+        if (d1 - d0).days > 6:
+            raise ValueError("Pick a week or less; each event page has to be checked.")
+        cutoff = now - timedelta(minutes=90)          # skip things long under way
+
+        def live(start_iso: str | None) -> bool:
+            if not start_iso:
+                return False
+            s = datetime.fromisoformat(start_iso)
+            s = s if s.tzinfo else s.replace(tzinfo=TZ)
+            return s >= cutoff
+
+        out, notes = [], []
+        cg = [e for e in self.all_events(d0, d1)["events"]
+              if live(e["start"]) and not self.ONLINE.search(e["location"] or "")]
+        if not include_paid:
+            cg = [e for e in cg if not e["price"] or re.search(r"free|\$0(\.00)?\b", e["price"], re.I)]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            flags = list(pool.map(lambda e: self._food_provided(str(e["id"])), cg))
+        for e, fed in zip(cg, flags):
+            word = self.FOOD_WORDS.search(e["title"])
+            if not (fed or word):
+                continue
+            out.append({"title": e["title"], "host": e["club"], "start": e["start"][:16].replace("T", " "),
+                        "when": e["when"], "location": e["location"],
+                        "food": "Food Provided (set by organiser)" if fed else f"title mentions '{word.group(0)}'",
+                        "confidence": "high" if fed else "low",
+                        "price": e["price"], "registration": e["registration"],
+                        "registered": e["registered"], "source": "CampusGroups", "url": e["url"]})
+
+        try:
+            regs = self._tw_my_registrations()
+            for raw in self._tw_upcoming_events():
+                ev = self._event_summary(raw, regs.get(str(raw.get("Id"))))
+                if not ev["date"] or not (d0.isoformat() <= ev["date"] <= d1.isoformat()):
+                    continue
+                if self.ONLINE.search(ev["location"] or "") or raw.get("EventFormatId") == 3:
+                    continue
+                if not live(f"{ev['date']}T{ev['start']}"):
+                    continue
+                text = _strip_html(raw.get("Description") or "")
+                in_title = self.FOOD_WORDS.search(ev["name"])
+                m = in_title or self.FOOD_WORDS.search(text)
+                if not m:
+                    continue
+                snippet = ev["name"] if in_title else "…" + text[max(0, m.start() - 70):m.end() + 70].strip() + "…"
+                out.append({"title": ev["name"], "host": ev["company"], "start": f"{ev['date']} {ev['start']}",
+                            "location": ev["location"], "food": f"description mentions '{m.group(0)}'",
+                            "snippet": snippet, "confidence": "medium",
+                            "registration": "required" if raw.get("IsStudentRegistrationRequired") else None,
+                            "registered": ev["registered"], "source": "12twenty", "event_id": ev["id"],
+                            "url": ev["link"]})
+        except SessionExpired:
+            notes.append("Not signed in to 12twenty, so recruiting events (receptions, lunch-and-learns) "
+                         "weren't checked. Run the login again to include them.")
+
+        out.sort(key=lambda x: (x["start"], x["confidence"] != "high"))
+        return {"start": d0.isoformat(), "end": d1.isoformat(), "count": len(out), "events": out,
+                **({"notes": notes} if notes else {}),
+                "caveat": "Food Provided is ticked by organisers, so some events with food won't show it. "
+                          "Many events need registration; don't just turn up for the food."}
+
     # -- rooms ------------------------------------------------------------
 
     def _rooms_raw(self, day: date) -> list[dict]:

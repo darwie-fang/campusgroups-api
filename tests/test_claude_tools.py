@@ -52,7 +52,7 @@ class ClaudeTools(unittest.TestCase):
                                       "find_ace_people", "appointment_slots", "my_appointments",
                                       "book_appointment", "cancel_appointment", "career_events",
                                       "career_event_details", "my_career_events", "register_career_event",
-                                      "cancel_career_event_registration"})
+                                      "cancel_career_event_registration", "find_free_food"})
         self.assertIn("Never guess", tools["book_room"]["description"])
         self.assertTrue(res[3]["result"]["isError"])                 # not confirmed -> refused
         self.assertEqual(len([p for p in site.posts if p[0] == "/room_reservation_form"]), 1)   # only the confirmed one

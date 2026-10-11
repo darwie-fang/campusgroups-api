@@ -189,6 +189,17 @@ TOOLS = [
             "required": ["event_id", "confirmed"]},
     },
     {
+        "name": "find_free_food",
+        "description": "In-person CBS events with food (New York time): CampusGroups events whose "
+                       "organiser ticked 'Food Provided', events with food in the title, and 12twenty "
+                       "recruiting events whose description mentions food (receptions, lunches). "
+                       "Default: the rest of today and tomorrow; max a week. Paid events are left out "
+                       "unless include_paid. Tell the user when an event needs registration, and that "
+                       "'confidence: low' means only the title suggests food. Can take ~10 seconds.",
+        "inputSchema": {"type": "object", "properties": {
+            "start": DATE, "end": DATE, "include_paid": {"type": "boolean"}}},
+    },
+    {
         "name": "book_room",
         "description": "Reserve a room on CampusGroups in the user's name. This makes a real booking. "
                        "Never guess or fill in a detail the user didn't give: if the room, date, start "
@@ -300,6 +311,8 @@ def call_tool(name, a):
         return gsb.register_event(a["event_id"], bool(a.get("join_waitlist")))
     if name == "cancel_career_event_registration":
         return gsb.cancel_event_registration(a["event_id"])
+    if name == "find_free_food":
+        return gsb.free_food(a.get("start"), a.get("end"), bool(a.get("include_paid")))
     if name == "find_person_email":
         return gsb.find_person_email(a["name"], a.get("class_year"))
     if name == "book_room":
