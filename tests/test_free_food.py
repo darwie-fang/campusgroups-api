@@ -31,6 +31,13 @@ class FreeFood(unittest.TestCase):
         self.c.free_food(self.site.d1, self.site.d2)
         self.assertEqual(len(self.site.event_pages), n)
 
+    def test_private_page_doesnt_break_search(self):
+        self.site.private_events = {"0"}
+        r = self.c.free_food(self.site.d1, self.site.d2)
+        self.assertEqual([e["title"] for e in r["events"]], ["Vibe Coding Dinner", "Tech Mixer"] if
+                         r["events"][0]["title"] == "Vibe Coding Dinner" else ["Tech Mixer", "Vibe Coding Dinner"])
+        self.assertIn("couldn't be checked", r["note"])
+
     def test_range_limit(self):
         from datetime import timedelta
         with self.assertRaises(ValueError):

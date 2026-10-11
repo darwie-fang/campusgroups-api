@@ -74,6 +74,7 @@ class FakeSite:
         self.logged_in = True
         self.food_events = {"1"}     # feed event ids whose organiser ticked "Food Provided"
         self.event_pages = []
+        self.private_events = set()
 
     # ---- data builders ----
     def _schedule(self, room_id, week_start):
@@ -169,12 +170,15 @@ class FakeSite:
             return '<form id="table_form" action="/room_reservation_form" method="POST"><input type="hidden" name="_csrf" value="FORMTOKEN"></form>'
         if path == "/room_reservation_details":
             return 'function cancelReservation%s(){ jQuery.ajax({ data: { id: %s, action: "cancel", _csrf: "CANCELTOKEN" } }) }' % (p["id"], p["id"])
-        if path == "/rsvp_boot":
-            self.event_pages.append(str(p["id"]))
-            food = ('<div style="margin: 10px 0;"> <div style="display: inline-block;"><span class="grey-element mdi mdi-food">'
-                    '</span></div> <div> Food Provided </div> </div>') if str(p["id"]) in self.food_events else ""
-            return f"<html><!-- Event Dress Code --> <!-- Food Provided --> {food} <!-- More Details --></html>"
         return ""
+
+    def event_page(self, event_id):
+        if event_id in self.private_events:
+            return None                      # members-only page redirects
+        self.event_pages.append(event_id)
+        food = ('<div style="margin: 10px 0;"> <div style="display: inline-block;"><span class="grey-element mdi mdi-food">'
+                '</span></div> <div> Food Provided </div> </div>') if event_id in self.food_events else ""
+        return f"<html><!-- Event Dress Code --> <!-- Food Provided --> {food} <!-- More Details --></html>"
 
     def post(self, path, data, referer):
         self.posts.append((path, dict(data)))
@@ -199,6 +203,7 @@ class FakeSite:
     def install(self, client):
         client._get = self.get
         client._get_html = self.get_html
+        client._event_page = self.event_page
         client._post = self.post
         client._mycbs_get = self.mycbs_get
         return client

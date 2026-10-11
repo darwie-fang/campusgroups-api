@@ -586,9 +586,28 @@ class GSBClient:
                             r"hors d'?oeuvres|tacos?|dumplings?|ice cream|wine)\b", re.I)
     ONLINE = re.compile(r"\b(virtual|zoom|online|webinar|teams)\b", re.I)
 
-    def _food_provided(self, event_id: str) -> bool:
-        return self._cached(f"food:{event_id}", lambda: bool(
-            self.FOOD_FLAG_RE.search(self._get_html("/rsvp_boot", id=event_id))))
+    def _food_provided(self, event_id: str) -> bool | None:
+        """True/False from the event page; None if the page couldn't be read. Some pages
+        (private or members-only events) redirect, which isn't a logged-out session, so it
+        mustn't stop the whole search."""
+        key = f"food:{event_id}"
+        hit = self._cache.get(key)
+        if hit and time.time() - hit[0] < self.cache_seconds:
+            return hit[1]
+        page = self._event_page(event_id)
+        if page is None:
+            return None
+        val = bool(self.FOOD_FLAG_RE.search(page))
+        self._cache[key] = (time.time(), val)
+        return val
+
+    def _event_page(self, event_id: str) -> str | None:
+        try:
+            r = self._session().get(f"{BASE}/rsvp_boot", params={"id": event_id}, timeout=15,
+                                    allow_redirects=False)
+        except requests.RequestException:
+            return None
+        return r.text if r.status_code == 200 else None
 
     def free_food(self, start: str | date | None = None, end: str | date | None = None,
                   include_paid: bool = False) -> dict:
@@ -616,8 +635,14 @@ class GSBClient:
               if live(e["start"]) and not self.ONLINE.search(e["location"] or "")]
         if not include_paid:
             cg = [e for e in cg if not e["price"] or re.search(r"free|\$0(\.00)?\b", e["price"], re.I)]
+        # Each event page is a separate request, so keep within a time budget and say so
+        # if some weren't checked (Claude's tool calls time out after about a minute).
+        deadline = time.time() + 35
+        def check(e):
+            return self._food_provided(str(e["id"])) if time.time() < deadline else None
         with ThreadPoolExecutor(max_workers=6) as pool:
-            flags = list(pool.map(lambda e: self._food_provided(str(e["id"])), cg))
+            flags = list(pool.map(check, cg))
+        unchecked = sum(1 for f in flags if f is None)
         for e, fed in zip(cg, flags):
             word = self.FOOD_WORDS.search(e["title"])
             if not (fed or word):
@@ -630,8 +655,10 @@ class GSBClient:
                         "registered": e["registered"], "source": "CampusGroups", "url": e["url"]})
 
         out.sort(key=lambda x: (x["start"], x["confidence"] != "high"))
+        res_note = ({"note": f"{unchecked} of {len(cg)} event pages couldn't be checked (private, or "
+                             "out of time); try a shorter date range for those days."} if unchecked else {})
         return {"start": d0.isoformat(), "end": d1.isoformat(), "count": len(out), "events": out,
-                "caveat": "Food Provided is ticked by organisers, so some events with food won't show it. "
+                **res_note, "caveat": "Food Provided is ticked by organisers, so some events with food won't show it. "
                           "Many events need registration; don't just turn up for the food."}
 
     # -- rooms ------------------------------------------------------------
