@@ -38,6 +38,11 @@ class FreeFood(unittest.TestCase):
                          r["events"][0]["title"] == "Vibe Coding Dinner" else ["Tech Mixer", "Vibe Coding Dinner"])
         self.assertIn("couldn't be checked", r["note"])
 
+    def test_feed_starts_at_the_requested_date(self):
+        self.c.free_food(self.site.d2, self.site.d2)
+        self.assertEqual((self.site.feed_params[0]["filter8"], self.site.feed_params[0]["filter9"]),
+                         (self.site.d2.isoformat(), self.site.d2.isoformat()))
+
     def test_range_limit(self):
         from datetime import timedelta
         with self.assertRaises(ValueError):

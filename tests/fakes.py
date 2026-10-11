@@ -75,6 +75,7 @@ class FakeSite:
         self.food_events = {"1"}     # feed event ids whose organiser ticked "Food Provided"
         self.event_pages = []
         self.private_events = set()
+        self.feed_params = []
 
     # ---- data builders ----
     def _schedule(self, room_id, week_start):
@@ -122,6 +123,7 @@ class FakeSite:
                                 "p7": aria(d, h), "p8": "", "p9": "10", "p10": ""})
             return out
         if "mobile_events_list" in path:
+            self.feed_params.append(dict(p))
             if p.get("range", 0) > 0:
                 return []
             return [{"fields": FEED_FIELDS, "p0": None, "p1": str(i), "p2": title,

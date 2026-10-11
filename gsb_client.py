@@ -435,9 +435,10 @@ class GSBClient:
         except Exception:
             pass
         try:
-            end = datetime.now(TZ).date() + timedelta(days=14)
-            self.all_events(end=end, max_pages=15)          # fills the cache below
-            raw_rows = self._cache.get(f"all:{end.isoformat()}", (0, []))[1]
+            today = datetime.now(TZ).date()
+            end = today + timedelta(days=14)
+            self.all_events(today, end, max_pages=15)       # fills the cache below
+            raw_rows = self._cache.get(f"all:{today.isoformat()}:{end.isoformat()}", (0, []))[1]
         except SessionExpired:
             raise
         except Exception:
@@ -558,9 +559,12 @@ class GSBClient:
             # `range` is the row offset. Page until we pass the end date.
             seen, out, rng = set(), [], 0
             for _ in range(max_pages):
+                # filter8/filter9 are the page's "From Date"/"To Date" boxes; without them
+                # the feed starts at "now" and a day next week takes ~100 requests.
                 rows = self._get("/mobile_ws/v17/mobile_events_list", range=rng, limit=40,
                                  filter4_contains="OR", filter4_notcontains="OR",
-                                 order="undefined", search_word="")
+                                 order="undefined", search_word="",
+                                 filter8=d0.isoformat(), filter9=d1.isoformat())
                 if not rows:
                     break
                 rng += len(rows)
@@ -580,7 +584,7 @@ class GSBClient:
                     break
             return out
 
-        raw = self._cached(f"all:{d1.isoformat()}", load)
+        raw = self._cached(f"all:{d0.isoformat()}:{d1.isoformat()}", load)
         events = [self._clean_event(e) for e in raw]
         events = [e for e in events if e["start"] and d0 <= date.fromisoformat(e["start"][:10]) <= d1]
         if club:
@@ -673,6 +677,8 @@ class GSBClient:
         unchecked = sum(1 for f in flags if f is None)
         for e, fed in zip(cg, flags):
             word = self.FOOD_WORDS.search(e["title"])
+            if word and re.search(r"\bcatering\b", e["title"], re.I):
+                word = None        # e.g. "Executive Education: Catering" is a booking, not an event
             if not (fed or word):
                 continue
             out.append({"title": e["title"], "host": e["club"], "start": e["start"][:16].replace("T", " "),
