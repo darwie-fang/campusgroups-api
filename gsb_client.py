@@ -238,14 +238,26 @@ class GSBClient:
         return s
 
     def _get(self, path: str, **params) -> object:
-        r = self._session().get(f"{BASE}{path}", params=params, timeout=20,
-                                allow_redirects=False)
-        body = r.text.strip()
-        if r.status_code in (301, 302, 401, 403) or "/auth/login" in r.headers.get("Location", "") \
-                or not body.startswith(("[", "{")):
-            self._s = None
-            raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
-        return json.loads(body)
+        """JSON from CampusGroups. Only a redirect to the login page (or 401/403) means
+        you're signed out; anything else odd (a busy-server error page, an empty reply)
+        is retried once and then reported as a hiccup, not as 'log in again'."""
+        for attempt in range(2):
+            r = self._session().get(f"{BASE}{path}", params=params, timeout=20,
+                                    allow_redirects=False)
+            body = r.text.strip()
+            loc = r.headers.get("Location", "")
+            if r.status_code in (401, 403) or (r.status_code in (301, 302) and
+                                               ("login" in loc.lower() or "/auth" in loc)):
+                self._s = None
+                raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
+            if r.status_code == 200 and body.startswith(("[", "{")):
+                return json.loads(body)
+            if "/auth/login" in body[:3000]:
+                self._s = None
+                raise SessionExpired("CampusGroups session expired. Run: python gsb.py login")
+            time.sleep(1.5)
+        raise RuntimeError(f"CampusGroups didn't answer properly (status {r.status_code}); "
+                           "it may be busy. Try again in a moment.")
 
     def _get_html(self, path: str, **params) -> str:
         """An HTML page/fragment (forms, details). Raises SessionExpired on a login redirect."""
@@ -672,7 +684,7 @@ class GSBClient:
         deadline = time.time() + 35
         def check(e):
             return self._food_provided(str(e["id"])) if time.time() < deadline else None
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:   # gentle on CampusGroups
             flags = list(pool.map(check, cg))
         unchecked = sum(1 for f in flags if f is None)
         for e, fed in zip(cg, flags):
