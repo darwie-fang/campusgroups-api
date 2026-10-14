@@ -72,5 +72,13 @@ class Events(unittest.TestCase):
             c.my_clubs()
 
 
+class SignedOutFeed(unittest.TestCase):
+    def test_public_feed_while_signed_out_is_an_error_not_fewer_events(self):
+        site = FakeSite(); site.logged_in = False; site.feed_public = True
+        c, _ = client(site)
+        with self.assertRaises(g.SessionExpired):
+            c.all_events(site.d1, site.d2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -259,6 +259,16 @@ class GSBClient:
         raise RuntimeError(f"CampusGroups didn't answer properly (status {r.status_code}); "
                            "it may be busy. Try again in a moment.")
 
+    def _require_login(self) -> None:
+        """The events feed still answers when you're signed out, but leaves out private and
+        members-only events, so a lapsed login looks like 'fewer events', not an error.
+        Check the login first (cached for 10 minutes)."""
+        hit = self._cache.get("login-ok")
+        if hit and time.time() - hit[0] < 600:
+            return
+        self._get("/mobile_ws/v17/mobile_header_groups", search="", all="false")
+        self._cache["login-ok"] = (time.time(), True)
+
     def _get_html(self, path: str, **params) -> str:
         """An HTML page/fragment (forms, details). Raises SessionExpired on a login redirect."""
         r = self._session().get(f"{BASE}{path}", params=params, timeout=20, allow_redirects=False)
@@ -565,6 +575,7 @@ class GSBClient:
         today = datetime.now(TZ).date()
         d0 = _parse_date(start, today)
         d1 = _parse_date(end, d0 + timedelta(days=7))
+        self._require_login()
 
         def load():
             # The feed starts at "now" and scrolls forward ~20 rows at a time;

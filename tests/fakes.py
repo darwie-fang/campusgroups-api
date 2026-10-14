@@ -76,6 +76,7 @@ class FakeSite:
         self.event_pages = []
         self.private_events = set()
         self.feed_params = []
+        self.feed_public = False
 
     # ---- data builders ----
     def _schedule(self, room_id, week_start):
@@ -105,7 +106,8 @@ class FakeSite:
 
     # ---- request handlers ----
     def get(self, path, **p):
-        if not self.logged_in:
+        # Like the real site: the public events feed answers even when signed out.
+        if not self.logged_in and not ("mobile_events_list" in path and self.feed_public):
             raise g.SessionExpired("expired")
         if "mobile_header_groups" in path:
             if p.get("all") == "true":
