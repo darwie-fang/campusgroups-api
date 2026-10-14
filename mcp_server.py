@@ -46,7 +46,8 @@ TOOLS = [
     {
         "name": "get_all_events",
         "description": "Events across ALL clubs and school offices at Columbia Business School "
-                       "between two dates, optionally filtered by club name, keyword (q), topic "
+                       "between two dates, optionally filtered by club name, keyword (q; comma-separate "
+                       "several to match any, e.g. 'trip, trek, ski'), topic "
                        "tag (e.g. 'Artificial Intelligence', 'Venture Capital'), or only events "
                        "the user is registered for. Prefer narrow date ranges: a busy week has "
                        "hundreds of events. The first call for a range can take ~10 seconds.",

@@ -43,6 +43,15 @@ class FreeFood(unittest.TestCase):
         self.assertEqual((self.site.feed_params[0]["filter8"], self.site.feed_params[0]["filter9"]),
                          (self.site.d2.isoformat(), self.site.d2.isoformat()))
 
+    def test_feed_pages_by_limit(self):
+        self.c.all_events(self.site.d1, self.site.d2)
+        self.assertEqual(self.site.feed_params[0]["limit"], 1000)
+        self.assertEqual(self.site.feed_params[1]["range"], 1000)
+
+    def test_keyword_any_of(self):
+        got = [e["title"] for e in self.c.all_events(self.site.d1, self.site.d2, q="mixer, exec ed")["events"]]
+        self.assertEqual(sorted(got), ["Exec Ed Day", "Tech Mixer"])
+
     def test_range_limit(self):
         from datetime import timedelta
         with self.assertRaises(ValueError):

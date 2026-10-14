@@ -459,7 +459,7 @@ class GSBClient:
         try:
             today = datetime.now(TZ).date()
             end = today + timedelta(days=14)
-            self.all_events(today, end, max_pages=15)       # fills the cache below
+            self.all_events(today, end, max_pages=5)        # fills the cache below
             raw_rows = self._cache.get(f"all:{today.isoformat()}:{end.isoformat()}", (0, []))[1]
         except SessionExpired:
             raise
@@ -571,40 +571,31 @@ class GSBClient:
 
     def all_events(self, start: str | date | None = None, end: str | date | None = None,
                    club: str | None = None, q: str | None = None, tag: str | None = None,
-                   registered_only: bool = False, max_pages: int = 60) -> dict:
+                   registered_only: bool = False, max_pages: int = 15) -> dict:
         today = datetime.now(TZ).date()
         d0 = _parse_date(start, today)
         d1 = _parse_date(end, d0 + timedelta(days=7))
         self._require_login()
 
         def load():
-            # The feed starts at "now" and scrolls forward ~20 rows at a time;
-            # `range` is the row offset. Page until we pass the end date.
-            seen, out, rng = set(), [], 0
+            # `range` and `limit` count the feed's internal rows (including ones it then
+            # hides), not events: page with range += limit. A big limit covers weeks per
+            # request; filter8/filter9 are the page's "From Date"/"To Date" boxes.
+            seen, out, rng, step = set(), [], 0, 1000
             for _ in range(max_pages):
-                # filter8/filter9 are the page's "From Date"/"To Date" boxes; without them
-                # the feed starts at "now" and a day next week takes ~100 requests.
-                rows = self._get("/mobile_ws/v17/mobile_events_list", range=rng, limit=40,
+                rows = self._get("/mobile_ws/v17/mobile_events_list", range=rng, limit=step,
                                  filter4_contains="OR", filter4_notcontains="OR",
                                  order="undefined", search_word="",
                                  filter8=d0.isoformat(), filter9=d1.isoformat())
                 if not rows:
                     break
-                rng += len(rows)
-                evs = [_map_row(r) for r in rows if isinstance(r, dict)]
-                evs = [e for e in evs if e.get("eventDates")]
-                past_end = False
-                for e in evs:
+                rng += step
+                for e in (_map_row(r) for r in rows if isinstance(r, dict)):
                     key = e.get("eventId")
-                    if key in seen:
+                    if not e.get("eventDates") or key in seen:
                         continue
                     seen.add(key)
                     out.append(e)
-                    st = _event_start(e)
-                    if st and st.date() > d1:
-                        past_end = True
-                if past_end:
-                    break
             return out
 
         raw = self._cached(f"all:{d0.isoformat()}:{d1.isoformat()}", load)
@@ -617,8 +608,10 @@ class GSBClient:
                 name = club.lower()
             events = [e for e in events if name and (name in e["club"].lower() or club.lower() in e["club"].lower())]
         if q:
-            ql = q.lower()
-            events = [e for e in events if ql in e["title"].lower() or ql in e["club"].lower()]
+            # Comma-separated words match any of them: "trip, trek, ski".
+            terms = [t.strip().lower() for t in q.split(",") if t.strip()]
+            events = [e for e in events if any(t in e["title"].lower() or t in e["club"].lower()
+                                               for t in terms)]
         if tag:
             tl = tag.lower()
             events = [e for e in events if any(tl in t.lower() for t in e["tags"])]
