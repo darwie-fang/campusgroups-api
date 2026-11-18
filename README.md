@@ -44,6 +44,29 @@ bash ~/Projects/gsb-api/setup.sh
 
 Paste the install line from step 2 again. It updates the code and keeps your login.
 
+### Using Claude on the web (claude.ai/code) instead of the desktop app
+
+A cloud session can't open a browser on your Mac, so it borrows your CampusGroups login instead.
+Paste this into Terminal:
+
+```
+curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash -s -- --cloud
+```
+
+It installs (or updates) the tool, signs you in with Duo if needed, and copies your CampusGroups login to the
+clipboard without showing it. Then, in your Claude Code session on claude.ai, open the environment menu in the
+title bar → **Edit → Network secrets → Add secret**:
+
+| Field | Value |
+|---|---|
+| Allowed websites | `groups.gsb.columbia.edu` |
+| Header name | `Cookie` |
+| Prefix | leave empty |
+| Value | paste (Cmd+V) |
+
+The login only works for CampusGroups and expires when CampusGroups signs you out (every week or two). To refresh it:
+`bash ~/Projects/gsb-api/setup.sh --cloud`, then paste into the same secret.
+
 ---
 
 ## Troubleshooting

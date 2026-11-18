@@ -1,10 +1,14 @@
 #!/bin/bash
 # One-command setup for the GSB CampusGroups API (macOS).
 #
-#   bash setup.sh
+#   bash setup.sh            # for the Claude desktop app
+#   bash setup.sh --cloud    # for Claude on the web: copies your login for a network secret
 #
 # Safe to run again any time: it skips what's already done, rebuilds what's
 # broken, and only asks you to sign in when your login has expired.
+
+CLOUD=0
+for a in "$@"; do [[ "$a" == "--cloud" ]] && CLOUD=1; done
 
 PROJECT_NAME="gsb-api"
 TARGET="$HOME/Projects/$PROJECT_NAME"
@@ -58,7 +62,10 @@ esac
 bold "2. Python"
 CHANNEL="$(cat "$DIR/.channel" 2>/dev/null || echo main)"
 INSTALL_LINE="curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash"
-[[ "$CHANNEL" != "main" ]] && INSTALL_LINE="$INSTALL_LINE -s -- $CHANNEL"
+EXTRA=""
+[[ "$CHANNEL" != "main" ]] && EXTRA="$CHANNEL"
+[[ "$CLOUD" == 1 ]] && EXTRA="${EXTRA:+$EXTRA }--cloud"
+[[ -n "$EXTRA" ]] && INSTALL_LINE="$INSTALL_LINE -s -- $EXTRA"
 if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "" >/dev/null 2>&1; then
   fail "Python isn't installed yet. That's normal on a new Mac. Two ways to get it:" \
     "" \
@@ -123,6 +130,26 @@ else
   "$VPY" "$DIR/gsb.py" status >/dev/null 2>&1 \
     || fail "Logged in, but CampusGroups didn't accept the session." "Run this again."
   ok "Logged in"
+fi
+
+# --- 5 (cloud). Hand the login to Claude on the web ------------------------------
+if [[ "$CLOUD" == 1 ]]; then
+  bold "5. Connect to Claude on the web"
+  "$VPY" "$DIR/gsb.py" cloud-cookie || fail "Couldn't copy your login." "Run this again."
+  ok "Your CampusGroups login is on the clipboard (it isn't shown anywhere)"
+  echo
+  info "On claude.ai, open your Claude Code session's environment menu (in the title bar),"
+  info "then Edit → Network secrets → Add secret (or edit the existing CampusGroups one):"
+  echo
+  info "  Allowed websites:  groups.gsb.columbia.edu"
+  info "  Header name:       Cookie"
+  info "  Prefix:            (leave empty)"
+  info "  Value:             paste with Cmd+V"
+  echo
+  info "Then click Add and tell Claude it's saved."
+  info "When CampusGroups logs you out (every week or two), run:  bash $DIR/setup.sh --cloud"
+  echo
+  exit 0
 fi
 
 # --- 5. Connect to the Claude app ------------------------------------------------

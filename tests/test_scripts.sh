@@ -24,4 +24,8 @@ echo "$out" | grep -q "bash -s -- dev"          || fail "dev channel install lin
 echo "$out" | grep -q "Channel: dev"            || fail "dev channel banner"
 
 out="$(bash install.sh 'bad;name' 2>&1)"; echo "$out" | grep -q "Unknown channel" || fail "channel validation"
+echo main > "$T/home/Projects/gsb-api/.channel"
+out="$(HOME="$T/home" PATH="$T/bin:/usr/bin:/bin" bash "$T/home/Projects/gsb-api/setup.sh" --cloud 2>&1)"
+echo "$out" | grep -q "install.sh | bash -s -- --cloud$" || fail "cloud install line"
+out="$(bash install.sh --cloud 'bad;name' 2>&1)"; echo "$out" | grep -q "Unknown channel 'bad;name'" || fail "channel validation with --cloud"
 echo "scripts OK"

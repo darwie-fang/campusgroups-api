@@ -65,6 +65,28 @@ def login(timeout_minutes: int = 5) -> None:
     print(f"Logged in. Session saved to {SESSION_FILE} (only your user can read it).")
 
 
+def cookie_header(host: str = "groups.gsb.columbia.edu", session_file: Path | None = None) -> str:
+    """The saved session as a `Cookie` header value for `host` ("a=1; b=2").
+
+    Used by `gsb.py cloud-cookie` so Claude on the web can use the same login,
+    stored as a network secret. Only cookies the browser would send to `host`
+    are included (exact host or a parent domain like .columbia.edu).
+    """
+    path = session_file or SESSION_FILE
+    if not path.exists():
+        raise SessionExpired("Not logged in. Run: python gsb.py login")
+    state = json.loads(path.read_text())
+    host = host.lower()
+    parts = []
+    for c in state.get("cookies", []):
+        dom = (c.get("domain") or "").lower().lstrip(".")
+        if dom and (host == dom or host.endswith("." + dom)) and c.get("name"):
+            parts.append(f"{c['name']}={c.get('value', '')}")
+    if not parts:
+        raise SessionExpired("No CampusGroups cookies in the saved session. Run: python gsb.py login")
+    return "; ".join(parts)
+
+
 def logout() -> None:
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()

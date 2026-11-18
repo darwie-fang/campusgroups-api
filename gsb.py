@@ -5,6 +5,7 @@ Command line for the GSB CampusGroups API.
   python gsb.py logout       # delete the saved session
   python gsb.py status       # am I logged in?
   python gsb.py serve        # start the API at http://127.0.0.1:8765 (docs at /docs)
+  python gsb.py cloud-cookie # copy your login to the clipboard for Claude on the web
 
 Quick answers without the server:
   python gsb.py clubs
@@ -17,7 +18,21 @@ Quick answers without the server:
 import json
 import sys
 
-from gsb_client import GSBClient, SessionExpired, login, logout
+from gsb_client import GSBClient, SessionExpired, cookie_header, login, logout
+
+
+def cloud_cookie() -> None:
+    """Copy the session's Cookie header to the clipboard. Never prints the value."""
+    import subprocess
+    try:
+        value = cookie_header()
+    except SessionExpired as e:
+        sys.exit(str(e))
+    try:
+        subprocess.run(["pbcopy"], input=value.encode(), check=True)
+    except (OSError, subprocess.CalledProcessError):
+        sys.exit("Couldn't copy to the clipboard (pbcopy is macOS only).")
+    print(f"Copied your CampusGroups login to the clipboard ({value.count(';') + 1} cookies).")
 
 
 def main(argv: list[str]) -> None:
@@ -33,6 +48,8 @@ def main(argv: list[str]) -> None:
         ok = GSBClient().status()["logged_in"]
         print("Logged in." if ok else "Not logged in. Run: python3 gsb.py login")
         sys.exit(0 if ok else 1)
+    if cmd == "cloud-cookie":
+        return cloud_cookie()
     if cmd == "serve":
         import uvicorn
         uvicorn.run("api:app", host="127.0.0.1", port=8765)

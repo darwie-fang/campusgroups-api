@@ -10,10 +10,18 @@
 # Testers (QA channel): add the channel name at the end:
 #   curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash -s -- dev
 # Back to the normal version: run the plain line above.
+#
+# Using Claude on the web (claude.ai) instead of the desktop app? Add --cloud:
+#   curl -fsSL https://raw.githubusercontent.com/darwie-fang/campusgroups-api/main/install.sh | bash -s -- --cloud
+# It signs you in, then copies your login so you can save it as a network secret.
 
 REPO="darwie-fang/campusgroups-api"
 TARGET="$HOME/Projects/gsb-api"
-CHANNEL="${1:-main}"
+CHANNEL="main"
+SETUP_ARGS=()
+for a in "$@"; do
+  if [[ "$a" == "--cloud" ]]; then SETUP_ARGS+=("--cloud"); else CHANNEL="$a"; fi
+done
 
 fail() { printf "\n\033[31m✗ %s\033[0m\n\n" "$*"; exit 1; }
 
@@ -45,4 +53,4 @@ fi
 cp -R "$SRC/." "$TARGET/" || fail "Couldn't copy the files into $TARGET."
 echo "$CHANNEL" > "$TARGET/.channel"
 
-exec bash "$TARGET/setup.sh"
+exec bash "$TARGET/setup.sh" "${SETUP_ARGS[@]}"
